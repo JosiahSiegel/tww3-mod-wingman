@@ -1,0 +1,18 @@
+KEY	VALUE
+wingman_mod_title	Wingman — Your AI Co-Pilot
+wingman_section_general	General
+wingman_section_campaign	Campaign Handover
+wingman_section_battle	Battle Handover
+wingman_section_rules	Rules & Limits
+wingman_enabled_tt	Take the stick — let me handle your turns.
+wingman_log_break	[Wingman] Hands off — control returned. Reason: %s
+wingman_log_takeover	[Wingman] Taking the stick. Faction: %s, Turn: %d
+wingman_log_turn_cap	[Wingman] Turn cap reached (%d). Control returned.
+wingman_log_war_pause	[Wingman] Heads up — war declared on you. Pausing so you can react.
+wingman_log_battle_fight	[Wingman] I'll handle this battle. Plan: %s
+wingman_log_battle_autoresolve	[Wingman] Autoresolving — odds are %d%% in our favor.
+wingman_log_battle_pause	[Wingman] Battle needs your call — pausing.
+wingman_log_ban_violation	[Wingman] Banned faction spotted: %s. Action: %s
+wingman_log_mp_block	[Wingman] Multiplayer detected — disabling to prevent desync.
+wingman_log_safe_mode	[Wingman] Error-safe mode entered. Automation halted. Reason: %s
+wingman_log_mission_victory	[Wingman] Mission accomplished. Custom victory conditions met!
