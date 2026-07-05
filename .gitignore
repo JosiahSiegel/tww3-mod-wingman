@@ -1,0 +1,49 @@
+# Agent runtime — planning artifacts, session notes, continuation state
+.omo/run-continuation/
+.ulw/
+!.omo/plans/         # keep .omo/plans/ tracked (work plans are versioned)
+!.ulw/README.md      # (none currently; future-proof in case)
+
+# Python (lupa integration tests, build_thumbnail.py deps)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# Temp / backup / log files
+*.tmp
+*.bak
+*.log
+
+# Compiled Lua artifacts (lupa / luac test outputs)
+*.luac
+
+# Build outputs — RPFM-produced .pack files belong in release assets, not source
+dist/
+build/
+
+# OS junk
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Editor / IDE
+.idea/
+.vscode/launch.json
+*.swp
+*.swo
+*~
+
+# RPFM reserved cache (per-mod local config)
+.rpfm_reserved/
+
+# User-installed Steam Workshop downloads (don't commit subscription caches)
+workshop_cache/
+
+# NOTE: Do NOT ignore the following — they MUST be tracked:
+#   script/   text/   assets/   tests/   pack/
+#   *.lua  *.tsv  *.png  *.json  *.md  *.py
+#   .luarc.json  .gitignore
+#   .omo/plans/  (versioned work plans)

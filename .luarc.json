@@ -1,0 +1,25 @@
+{
+  "Lua": {
+    "runtime": {
+      "version": "Lua 5.1"
+    },
+    "workspace": {
+      "checkThirdParty": false
+    },
+    "diagnostics": {
+      "globals": [
+        "cm",
+        "core",
+        "bm",
+        "mission_manager",
+        "find_uicomponent",
+        "out",
+        "vlib",
+        "mct"
+      ]
+    }
+  },
+  "workspace": {
+    "library": []
+  }
+}
