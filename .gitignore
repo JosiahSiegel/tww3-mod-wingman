@@ -11,6 +11,9 @@ __pycache__/
 *.pyd
 .Python
 *.egg-info/
+# Lupa integration test scripts (one-shot smoke tests, not part of the deliverable)
+tests/manual/qa_smoke_*.py
+tests/manual/test_t*_integration.py
 
 # Temp / backup / log files
 *.tmp
