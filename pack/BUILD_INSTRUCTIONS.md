@@ -39,6 +39,8 @@
 3. Enable script logging: create empty file `<TWW3>/data/script/enable_console_logging`.
 4. Launch original TW launcher → Mod Manager → enable MCT + Wingman → Play.
 
+> **For the full end-to-end local testing guide** (RPFM config, iterative dev loop, evidence capture, common pitfalls, lupa pre-launch smoke test), see [`tests/manual/LOCAL_TESTING.md`](../tests/manual/LOCAL_TESTING.md).
+
 ### 5. Upload to Workshop
 
 1. Verify the pack works in-game (run `tests/manual/wingman_scenarios.md` S1 + S7).

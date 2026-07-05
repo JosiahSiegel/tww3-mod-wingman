@@ -4,6 +4,8 @@ This is the runnable TDD suite for the Wingman TWW3 mod. Each scenario is binary
 
 The scenarios here mirror the plan in `.omo/plans/wingman-mod.md` (Verification Scenarios S1–S10, Smoke-test Workflow), but they're rewritten as a runnable matrix with the actual log prefixes emitted by the modules. Use this file as the entry point for any release pass.
 
+> **First time testing locally?** Read [`LOCAL_TESTING.md`](./LOCAL_TESTING.md) first — it covers the RPFM build, the script-logging setup, the original-launcher requirement, and the iterative dev loop.
+
 ## How to run these
 
 ### Prerequisites

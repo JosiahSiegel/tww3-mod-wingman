@@ -22,6 +22,14 @@ Let an AI co-pilot take the stick on your campaign and battles. Set rules, turn 
 3. Open Mod Manager. Enable **Mod Configuration Tool** first, then enable **Wingman**.
 4. Start any campaign. Wingman's settings panel appears in the MCT menu.
 
+### Building and testing locally
+
+If you want to build the mod from source and test changes locally (contributors, testers):
+
+- **[`tests/manual/LOCAL_TESTING.md`](tests/manual/LOCAL_TESTING.md)** — end-to-end local testing guide: RPFM build, install, script-logging setup, iterative dev loop, lupa pre-launch smoke test, common pitfalls, evidence capture protocol.
+- **[`pack/BUILD_INSTRUCTIONS.md`](pack/BUILD_INSTRUCTIONS.md)** — RPFM build steps + Workshop upload flow.
+- **[`tests/manual/wingman_scenarios.md`](tests/manual/wingman_scenarios.md)** — 10 manual test scenarios (S1–S10) with binary pass/fail and evidence paths.
+
 ## Safety
 
 - **Multiplayer**: Wingman disables itself automatically to prevent desyncs.
