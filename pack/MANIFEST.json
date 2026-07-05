@@ -1,0 +1,28 @@
+{
+  "name": "!wingman",
+  "version": "0.1.0-alpha",
+  "display_name": "Wingman — Your AI Co-Pilot",
+  "format": "PFH5",
+  "required_dependency": {
+    "name": "Mod Configuration Tool",
+    "workshop_id": "2927955021"
+  },
+  "files": {
+    "script/campaign/mod/wingman_init.lua": "Bootstrap + module wiring",
+    "script/campaign/mod/wingman_state.lua": "State machine + persistence",
+    "script/campaign/mod/wingman_safety.lua": "MP guard, popup safety, error-safe mode",
+    "script/campaign/mod/wingman_campaign.lua": "Campaign auto-end-turn driver",
+    "script/campaign/mod/wingman_rules.lua": "Turn cap + custom win + faction ban evaluators",
+    "script/campaign/mod/wingman_missions.lua": "mission_manager builders",
+    "script/campaign/mod/wingman_battle.lua": "Campaign-side battle queue + pending battle detection",
+    "script/battle/mod/wingman_battle_init.lua": "Battle-mode scripted AI takeover",
+    "script/mct/settings/wingman_mct.lua": "MCT settings registration (REQUIRED for mod)",
+    "text/db/wingman.loc.tsv": "Localization strings"
+  },
+  "thumbnail": "assets/workshop/!wingman.png",
+  "uploads_via": "Original TW launcher → Mod Manager → right-click → Upload",
+  "tags": ["Campaign", "UI"],
+  "no_modifier_effects": true,
+  "no_new_models": true,
+  "no_dlc_required": true
+}
