@@ -1,0 +1,283 @@
+# =============================================================================
+# Wingman — TWW3 mod release workflow
+# =============================================================================
+# Push a `v*` tag (e.g. `git tag v0.2.0 && git push --tags`) and this workflow:
+#   1. Builds the pack (lupa smoke gate → RPFM pack)
+#   2. Uploads the pack as a 90-day workflow artifact
+#   3. Creates a DRAFT GitHub Release containing the pack + thumbnail
+#   4. Publishes to Steam Workshop (gated by reviewer environment)
+#   5. Publishes the GitHub Release (draft → released) on workshop success
+#
+# Required manual setup (NOT created by this workflow — owner must configure):
+#
+#   Repository variables  (Settings → Secrets and variables → Variables → Actions)
+#     WORKSHOP_ITEM_ID    numeric Steam Workshop item ID, e.g. "3456789012".
+#                         Created ONCE manually via the in-game launcher
+#                         (Steam Guard EULA cannot be accepted from CI).
+#                         This is intentionally a VARIABLE, not a secret —
+#                         Workshop item IDs are public on steamcommunity.com.
+#
+#   Repository secrets   (Settings → Secrets and variables → Secrets → Actions)
+#     STEAM_USERNAME      dedicated Steam account that owns TWW3
+#                         (recommend a separate "builder" account, not personal)
+#     STEAM_PASSWORD      account password
+#     STEAM_TFASEED       Steam Guard shared_secret (NOT a TOTP code — see
+#                         Weilbyte/steam-workshop-upload docs for extraction)
+#
+#   GitHub Environment   (Settings → Environments → New environment)
+#     name:               steam-workshop
+#     required reviewers: ≥ 1 maintainer   ← security gate against arbitrary
+#                                            `v*` tag pushes
+#     deployment branches: main    (or restrict to v* tags if you prefer)
+# =============================================================================
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'                         # auto-trigger on SemVer tag push
+  workflow_dispatch:                  # manual trigger (dry_run=true by default)
+    inputs:
+      dry_run:
+        description: 'Build only — skip publish job (Workshop + Release)'
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write                     # create / publish releases
+  actions: read
+
+env:
+  RPFM_VERSION: '4.5.4'
+  STEAM_APPID: '1142710'             # Total War: WARHAMMER III
+  PACK_NAME: '!wingman.pack'
+  THUMB_NAME: '!wingman.png'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1: build pack + create draft GitHub Release
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build & Release Draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 15               # cap burned runner time
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python (for lupa smoke test)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install lupa
+        run: pip install lupa
+
+      # Pre-build gate — run BEFORE the expensive pack step so syntax errors
+      # fail the run in seconds, not after a multi-minute RPFM download.
+      - name: Run lupa smoke test (pre-build gate)
+        run: python scripts/lupa_smoke.py
+
+      # Cache key is version-pinned: a future RPFM v4.5.5 release will
+      # automatically invalidate this key (different rpfm-v4.5.5-* prefix).
+      - name: Cache RPFM
+        id: cache-rpfm
+        uses: actions/cache@v4
+        with:
+          path: tools/rpfm
+          key: rpfm-v${{ env.RPFM_VERSION }}-linux-x86_64
+          restore-keys: |
+            rpfm-v${{ env.RPFM_VERSION }}-linux-x86_64
+
+      - name: Install RPFM CLI
+        run: bash scripts/install_rpfm.sh
+        env:
+          GITHUB_WORKSPACE: ${{ github.workspace }}
+
+      - name: Build pack
+        id: build
+        run: bash scripts/build_pack.sh
+        env:
+          GITHUB_WORKSPACE: ${{ github.workspace }}
+          REPO_ROOT: ${{ github.workspace }}
+
+      - name: Inspect dist/
+        run: ls -la dist/
+
+      # Durable, signed-at-source-of-truth artifact independent of Releases.
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wingman-pack
+          path: dist/
+          retention-days: 90
+
+      # Draft Release persists BEFORE the Workshop push so the user always
+      # has something to fall back to (download + manual Steam upload) even
+      # if Steam auth fails.
+      - name: Create draft GitHub Release
+        id: create_release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: 'Wingman ${{ github.ref_name }}'
+          draft: true
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/!wingman.pack
+            dist/!wingman.png
+
+      # ------------------------------------------------------------------------
+      # Maintainer hand-off: when the `steam-workshop` environment approval
+      # request fires, the reviewer needs a one-click path to the .pack so
+      # they can install + test on their machine BEFORE approving.
+      #
+      # This step summary surfaces in the workflow run page (right column)
+      # AND in the email notification GitHub sends to required reviewers.
+      # Without it, reviewers see a pending approval with no obvious next
+      # step and have to dig through the Actions UI to find the artifact.
+      # ------------------------------------------------------------------------
+      - name: Post-reviewer hand-off summary
+        if: success()
+        run: |
+          {
+            echo "## 📦 Wingman build ready for local testing"
+            echo ""
+            echo "A maintainer **must download and test this build locally**"
+            echo "before approving the \`steam-workshop\` environment."
+            echo ""
+            echo "### Step 1 — Download the pack"
+            echo "- **Draft Release** (raw \`.pack\`): [\`${{ steps.create_release.outputs.release_url || format('release for {0}', github.ref_name) }}\`](${{ steps.create_release.outputs.release_url }})"
+            echo "- **Workflow artifact** (zip): [run summary page](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts)"
+            echo ""
+            echo "### Step 2 — Install locally"
+            echo '```powershell'
+            echo "Copy-Item \"${{ github.workspace }}\dist\!wingman.pack\" \"C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III\data\!wingman.pack\" -Force"
+            echo "Copy-Item \"${{ github.workspace }}\dist\!wingman.png\"  \"C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III\data\!wingman.png\"  -Force"
+            echo '```'
+            echo ""
+            echo "### Step 3 — Run smoke tests"
+            echo "1. Launch **original** TW launcher (NOT the EA Mod Manager)."
+            echo "2. Tick MCT + Wingman in Mod Manager → Play."
+            echo "3. Start an Immortal Empires campaign (Reikland is fastest)."
+            echo "4. Open \`tests/manual/wingman_scenarios.md\` and run:"
+            echo "   - **S1** — Campaign handover happy path"
+            echo "   - **S6** — Save/load persistence"
+            echo "   - **S7** — Workshop/local install regression"
+            echo "5. Verify pass conditions + capture evidence under \`tests/manual/evidence/\`."
+            echo ""
+            echo "### Step 4 — Approve or Reject"
+            echo "- ✅ **Tests pass** → Approve the \`steam-workshop\` environment → Workshop publish runs."
+            echo "- ❌ **Tests fail** → Reject the approval. The draft release + artifact persist for diagnosis. Re-tag (\`v0.2.1\`) once fixed."
+            echo ""
+            echo "---"
+            echo "**Tag**: \`${{ github.ref_name }}\`  |  **Run**: \`${{ github.run_id }}\`  |  **Workflow run**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # Job 2: publish to Steam Workshop (gated by reviewer environment)
+  #         — then promote the draft release to published.
+  #
+  #   Why the environment gate:  a `v*` tag push is the trigger. Without an
+  #   approver, anyone with push access could ship a malicious pack by tagging
+  #   and pushing. The `environment: steam-workshop` block forces a maintainer
+  #   review in the Actions UI before this job runs.
+  #
+  #   Why no Workshop-item CREATION:  Steam's first publish for a new item
+  #   requires the user to accept an EULA interactively in the Steam client.
+  #   That UI flow cannot be automated from CI. The first publish is always
+  #   manual via the in-game launcher; this workflow only handles updates.
+  # ---------------------------------------------------------------------------
+  publish:
+    name: Publish to Steam Workshop
+    needs: build
+    # Only run on real tag pushes — manual `workflow_dispatch` with
+    # dry_run=true should NOT touch Steam.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10               # publish must be quick or we want to know
+    environment:
+      name: steam-workshop
+      url: https://steamcommunity.com/app/${{ env.STEAM_APPID }}/workshop/
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: wingman-pack
+          path: dist/
+
+      # Sanity check the pack is actually a PFH5 file before touching Steam.
+      # PFH5 magic = "PFH5" = 50 46 48 35
+      - name: Verify pack magic
+        run: |
+          ls -la dist/
+          head -c 4 dist/!wingman.pack | xxd
+          test "$(head -c 4 dist/!wingman.pack)" = "PFH5" \
+            || (echo "::error::dist/!wingman.pack is not a PFH5 archive" && exit 1)
+
+      - name: Publish to Steam Workshop
+        uses: weilbyte/steam-workshop-upload@v1
+        with:
+          appid: ${{ env.STEAM_APPID }}
+          itemid: ${{ vars.WORKSHOP_ITEM_ID }}   # PUBLIC Workshop ID — variable, not secret
+          path: dist/
+        env:
+          STEAM_USERNAME: ${{ secrets.STEAM_USERNAME }}
+          STEAM_PASSWORD: ${{ secrets.STEAM_PASSWORD }}
+          STEAM_TFASEED: ${{ secrets.STEAM_TFASEED }}
+
+      # Promote the draft created by the build job. Softprops action is
+      # idempotent against tag_name — it reuses the existing release.
+      - name: Publish GitHub Release
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          draft: false
+
+      # Leave the DRAFT release unpublished on Workshop failure so the user
+      # can manually retry, fall back to the in-game launcher, or download
+      # from the workflow artifact. We DON'T delete the draft — that's the
+      # durable fallback path.
+      - name: Annotate draft release on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tag = context.payload.ref.replace('refs/tags/', '');
+            const body = [
+              '## Steam Workshop publish FAILED',
+              '',
+              'The pack build succeeded and is available as a draft release,',
+              'but the Steam Workshop upload did not complete. Likely causes:',
+              '- Steam Guard 2FA challenge (re-run with fresh TOTP seed)',
+              '- `WORKSHOP_ITEM_ID` is wrong or has been deleted on Steam',
+              '- Steam Workshop service degraded / 5xx from the API',
+              '',
+              '**Fallback:** download `!wingman.pack` from this draft release',
+              '(or from the `wingman-pack` workflow artifact) and upload',
+              'manually via the in-game launcher.',
+              '',
+              'See the `publish` job logs in the workflow run for details.',
+            ].join('\n');
+            core.info(`Annotating release for tag ${tag}`);
+            core.info(body);
+            try {
+              const { data: release } = await github.rest.repos.getReleaseByTag({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                tag,
+              });
+              await github.rest.repos.updateRelease({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                release_id: release.id,
+                body: (release.body ? release.body + '\n\n---\n\n' : '') + body,
+              });
+              core.info(`Updated release ${release.id} with failure note.`);
+            } catch (err) {
+              core.warning(`Could not annotate release ${tag}: ${err.message}`);
+            }

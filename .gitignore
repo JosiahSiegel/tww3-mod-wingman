@@ -42,6 +42,10 @@ desktop.ini
 # RPFM reserved cache (per-mod local config)
 .rpfm_reserved/
 
+# RPFM extracted binaries (downloaded by scripts/install_rpfm.sh and cached by
+# GitHub Actions; ~270 MB each, never commit).
+tools/
+
 # User-installed Steam Workshop downloads (don't commit subscription caches)
 workshop_cache/
 

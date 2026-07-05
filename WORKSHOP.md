@@ -45,3 +45,11 @@
 | Upload spins forever | Restart Steam, retry |
 | Mod not appearing in Mod Manager | Check `data/` for `.pack` file, verify filename has no uppercase, restart launcher |
 | "Patch X.Y: New table Z required" | Pack references an outdated schema; rebuild after game patch |
+
+## CI vs Manual Publishing
+
+The repo's GitHub Actions workflow (`.github/workflows/release.yml`) can automate Steam Workshop publish on tag push. However:
+
+- **First publish must be manual** — SteamCMD cannot accept the EULA dialog that appears on first Workshop item creation. Upload via the original TW launcher once; subsequent updates can flow through CI.
+- **TWW3 has known `K_EResultFail` issues** with SteamCMD uploads. The Mod Manager may reject items uploaded outside CA's launcher.
+- **If CI publish fails**, the durable `.pack` artifact is preserved in the draft GitHub Release — re-upload via the in-game launcher (same flow as the manual update path above).

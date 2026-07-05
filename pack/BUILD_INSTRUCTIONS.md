@@ -75,3 +75,29 @@
 | MCT panel missing | Ensure `script/mct/settings/wingman_mct.lua` is in the pack — check via RPFM's MyMod view. |
 | Lua errors in log | Check `script_log_*.txt` for the first error line; the call stack points at the file. |
 | Upload spins forever | Restart Steam and try again. |
+
+## Automated Build (GitHub Actions)
+
+For contributors who don't want to install RPFM locally, the repo ships `.github/workflows/release.yml` that builds the pack on every `v*` tag push:
+
+- Push a SemVer tag (e.g., `git tag v0.2.0 && git push origin v0.2.0`).
+- The workflow builds the pack, creates a draft GitHub Release, and (gated on reviewer approval) publishes to Steam Workshop.
+
+To configure Steam Workshop publishing in CI:
+
+1. **First-time publish must be manual** — open the game, original TW launcher → Mod Manager → right-click Wingman → Upload → accept EULA → publish as Hidden. Copy the numeric Workshop item ID from the URL.
+2. **In GitHub repo settings**:
+   - Settings → Secrets and variables → **Variables** → Actions → New variable `WORKSHOP_ITEM_ID` = `<your item ID>`
+   - Settings → Secrets and variables → **Secrets** → Actions → New secret:
+     - `STEAM_USERNAME` (recommend a dedicated builder account)
+     - `STEAM_PASSWORD`
+     - `STEAM_TFASEED` (Steam Guard shared_secret, not TOTP — see [Weilbyte's README](https://github.com/Weilbyte/steam-workshop-upload) for extraction)
+   - Settings → **Environments** → New environment `steam-workshop` → Required reviewers: add at least 1 maintainer → Deployment branches: limit to `main`.
+3. **Trigger**: `git tag v0.X.Y && git push origin v0.X.Y` — workflow runs, reviewer approves the `steam-workshop` environment, publish proceeds.
+
+**TWW3 SteamCMD caveat**: TWW3's Workshop is known to sometimes reject SteamCMD-uploaded items with `K_EResultFail` (community reports). If CI publish fails:
+- The draft GitHub Release contains the working `.pack` file (no work lost).
+- Fall back to manual upload via the in-game launcher.
+- File a follow-up issue if it's reproducible.
+
+**Verification without publishing**: run `workflow_dispatch` with the default `dry_run: true` to skip the publish job — useful for testing the build pipeline.

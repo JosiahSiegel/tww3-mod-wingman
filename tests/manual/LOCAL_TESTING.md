@@ -380,3 +380,18 @@ If you grep `script_log_*.txt` for these patterns, you'll know which scenario yo
 | `battle init ok. v0.1.0-alpha mode=... bias=...` | Battle script loaded (S2) |
 | `[Wingman] ERROR_SAFE: ...` | Automation halted — check log for cause |
 | `[Wingman] shutdown: ...` | `wingman.shutdown()` was called |
+
+## CI smoke test
+
+The repo includes `scripts/lupa_smoke.py` — a Python script that loads all 9 Lua modules under stubbed TWW3 engine globals and exercises the bootstrap. This is the same test that runs as the first step of `.github/workflows/release.yml`.
+
+Run it locally before opening TWW3 to catch syntax errors and module-load issues fast:
+
+```bash
+pip install lupa
+python scripts/lupa_smoke.py
+```
+
+Expected output: 8 `OK   <file>` lines + 4 bootstrap calls succeed + `ALL CHECKS PASS`. Exit code 0 on success, 1 on any failure.
+
+This catches the most common CI failures (Lua syntax errors, missing modules, broken init wiring) in under 5 seconds — much faster than the full in-game cycle (~30 seconds per build).
