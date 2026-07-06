@@ -1,6 +1,7 @@
 -- =====================================================================
 -- Wingman -- MCT Settings
 -- =====================================================================
+out("[Wingman DEBUG] wingman_mct.lua file loading") -- D0: file body starts
 -- Registers all Wingman mod configuration options with the
 -- Mod Configuration Tool (MCT, Workshop ID 2927955021). Provides a
 -- public API (`wingman_mct.*`) for the rest of the mod to read
@@ -31,7 +32,9 @@
 ---------------------------------------------------------------------
 -- Bail if MCT isn't loaded; downstream code reads defaults via
 -- wingman_mct.get_default_settings()
+out("[Wingman DEBUG] D1: about to call get_mct()") -- D1
 local mct = get_mct and get_mct() or nil
+out("[Wingman DEBUG] D2: get_mct() returned: " .. tostring(mct)) -- D2
 if not mct then
     out("[Wingman] WARNING: MCT (Mod Configuration Tool) is not loaded. Wingman requires MCT. Subscribe to Workshop item 2927955021.")
     -- Still expose a wingman_mct table so other modules can safely
@@ -205,12 +208,18 @@ end
 -- at registration time, hiding all options from the panel.
 
 local wingman_mod = mct:register_mod("wingman")
+out("[Wingman DEBUG] D3: mct:register_mod returned: " .. tostring(wingman_mod)) -- D3
 wingman_mod:set_workshop_id("wingman_local_id")
+out("[Wingman DEBUG] D4: set_workshop_id OK") -- D4
 wingman_mod:set_version(mct:get_version_number(), mct:get_version())
 wingman_mod:set_main_image("ui/mct/van_mct.png", 300, 300)
+out("[Wingman DEBUG] D5: set_main_image OK") -- D5
 wingman_mod:set_description("Wingman -- Your AI Co-Pilot for TWW3")
+out("[Wingman DEBUG] D6: set_description OK") -- D6
 wingman_mod:set_title("Wingman -- Your AI Co-Pilot")
+out("[Wingman DEBUG] D7: set_title OK") -- D7
 wingman_mod:set_author("Wingman Team")
+out("[Wingman DEBUG] D8: set_author OK") -- D8
 
 
 ---------------------------------------------------------------------
@@ -227,9 +236,13 @@ local SECTION_BATTLE  = "wingman_section_battle"
 local SECTION_RULES   = "wingman_section_rules"
 
 wingman_mod:add_new_section(SECTION_GENERAL, "General")
+out("[Wingman DEBUG] D9: SECTION_GENERAL added") -- D9
 wingman_mod:add_new_section(SECTION_CAMPAIGN, "Campaign Handover")
+out("[Wingman DEBUG] D10: SECTION_CAMPAIGN added") -- D10
 wingman_mod:add_new_section(SECTION_BATTLE,  "Battle Handover")
+out("[Wingman DEBUG] D11: SECTION_BATTLE added") -- D11
 wingman_mod:add_new_section(SECTION_RULES,   "Rules & Limits")
+out("[Wingman DEBUG] D12: all 4 sections added") -- D12
 
 
 ---------------------------------------------------------------------
@@ -268,6 +281,7 @@ end
 ---------------------------------------------------------------------
 do
     local opt = add_option("wingman_enabled")
+    out("[Wingman DEBUG] D13: first add_option returned: " .. tostring(opt)) -- D13
     configure_option(opt, "wingman_enabled")
     opt:set_text("Enable Wingman")
     opt:set_tooltip_text("Take the stick -- let me handle your turns. Master switch for all Wingman automation.")
