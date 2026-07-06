@@ -30,12 +30,19 @@
 -- 0. Hard dependency check
 ---------------------------------------------------------------------
 -- Safe logging: the launcher's MCT-load context may not have `out`
--- defined as a global. Use a local proxy that falls back to a no-op
--- so a missing `out` never throws and silently kills the file body.
+-- defined as a global. Use `vlog` (the MCT engine's own logging
+-- function, which IS available in the settings-load context — that's
+-- how recruit_defeated_settings.lua's output reaches the log via
+-- the mod handle internals). Falls back to out() if vlog is nil,
+-- and silently no-ops if both are nil.
 local function safe_out(msg)
-    if type(out) == "function" then
+    if type(vlog) == "function" then
+        pcall(vlog, msg)
+    elseif type(out) == "function" then
         pcall(out, msg)
     end
+    -- If neither vlog nor out is available, silently no-op.
+    -- The body continues executing either way.
 end
 
 -- Get the MCT handle. If MCT is not loaded, the mct:register_mod call
