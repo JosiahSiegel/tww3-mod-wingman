@@ -74,6 +74,12 @@ fi
 # runner (cached apt metadata + pre-warmed package cache).
 echo "Installing RPFM runtime dependencies via apt-get..."
 if command -v apt-get >/dev/null 2>&1; then
+    # Ensure 'universe' repo is enabled — libgit2-1.9 and the KF5 set ship in
+    # universe on Ubuntu Noble, which github runners don't enable by default.
+    if ! grep -qE '^[^#]*\buniverse\b' /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources 2>/dev/null; then
+        echo "Enabling universe repository..."
+        sudo add-apt-repository -y universe || true
+    fi
     sudo apt-get update -qq
     sudo apt-get install -y -qq --no-install-recommends \
         libgit2-1.9 \
