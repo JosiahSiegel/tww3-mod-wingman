@@ -45,6 +45,16 @@ else:
 # Module load order matters: each later file depends on the previous.
 # wingman_ai.lua (W5) comes before wingman_init because init registers the
 # AI listener alongside the rest.
+#
+# wingman_mct.lua is the MCT settings registration file. It is loaded
+# by the launcher (not by our mod) at /script/mct/settings/wingman_mct.lua
+# but we include it here so the pre-build gate catches any Lua syntax
+# error in it BEFORE shipping. (Bug 2026-07-06: a stray 'end) -- END
+# pcall wrapper' at the bottom of the file was left over from diagnostic
+# instrumentation, making the file syntactically invalid. The launcher's
+# outer loader reported 'loaded successfully!' anyway. Fixed by adding
+# this to SOURCE_FILES so any future syntax error fails lupa_smoke in
+# ~1 second instead of shipping.)
 SOURCE_FILES = (
     "script/campaign/mod/wingman_state.lua",
     "script/campaign/mod/wingman_safety.lua",
@@ -55,6 +65,7 @@ SOURCE_FILES = (
     "script/campaign/mod/wingman_battle.lua",
     "script/campaign/mod/wingman_init.lua",
     "script/battle/mod/wingman_battle_init.lua",
+    "script/mct/settings/wingman_mct.lua",
 )
 
 # Bootstrap functions to invoke after load. Each must return truthy.

@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Pre-commit hook: run lupa_smoke + test_mct_integration BEFORE any commit
+# is accepted. This exists because a stray 'end) -- END pcall wrapper'
+# shipped in commits 67c95bf + 2fc43ef (diagnostic instrumentation cleanup
+# was incomplete) and broke wingman_mct.lua's parse. The launcher's outer
+# loader reported 'loaded successfully!' anyway, so the bug only surfaced
+# in-game. These two tests pcall(dofile) the actual Lua file and would
+# have caught it in ~1 second.
+#
+# Install:  cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+# Or run:   scripts/install_pre_commit.sh
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+# Find a Python with lupa. Try common locations.
+PY=""
+for candidate in \
+    "/c/Users/josia/AppData/Local/Programs/Python/Python314/python.exe" \
+    "py" "python3" "python"; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+        if "$candidate" -c "import lupa" >/dev/null 2>&1; then
+            PY="$candidate"
+            break
+        fi
+    fi
+done
+
+if [ -z "$PY" ]; then
+    echo "WARN: no Python with lupa found; skipping pre-commit Lua test gate." >&2
+    echo "      Install lupa: pip install lupa" >&2
+    exit 0  # don't block the commit; CI will catch it
+fi
+
+echo "[pre-commit] Running lupa smoke test ($PY) ..."
+if ! "$PY" scripts/lupa_smoke.py; then
+    echo "FAIL: scripts/lupa_smoke.py -- Lua syntax error in one of the source files." >&2
+    echo "      Fix the error above before committing." >&2
+    exit 1
+fi
+
+echo "[pre-commit] Running MCT integration test ..."
+if ! "$PY" tests/manual/test_mct_integration.py; then
+    echo "FAIL: tests/manual/test_mct_integration.py -- wingman_mct.lua didn't register cleanly." >&2
+    echo "      Fix the error above before committing." >&2
+    exit 1
+fi
+
+echo "[pre-commit] OK -- Lua tests pass; commit allowed."
+exit 0

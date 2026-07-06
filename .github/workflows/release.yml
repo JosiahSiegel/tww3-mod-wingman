@@ -99,6 +99,18 @@ jobs:
       - name: Run lupa smoke test (pre-build gate)
         run: python scripts/lupa_smoke.py
 
+      # Hard syntax gate: the lupa smoke test only verifies lupa is
+      # importable. The real test of "the Lua file in this commit
+      # actually parses + registers cleanly" is test_mct_integration.py
+      # which pcall(dofile)'s the actual wingman_mct.lua. If we skip
+      # this, a stray 'end)' or unbalanced 'do/end' slips through and
+      # the launcher's outer loader reports 'loaded successfully!'
+      # even though the body never executed. (This bug shipped in
+      # commits 67c95bf + 2fc43ef because I never ran the test between
+      # the diagnostic instrumentation and the fix — fixed in 795de53.)
+      - name: MCT integration test (Lua parse + register gate)
+        run: python tests/manual/test_mct_integration.py
+
       # Build the pack with a pure-Python PFH5 writer. Zero external deps,
       # no apt installs, no 122 MB RPFM download. The format is documented at
       # https://github.com/TotalWar-Modding/docs/blob/master/pack%20file%20format.md
