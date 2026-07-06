@@ -212,6 +212,27 @@ _G.core = {
     remove_listener = function(self, name) return true end,
     svr_save_registry_string = function(self, k, v) return true end,
     svr_load_registry_string = function(self, k) return "" end,
+    -- W7: get_or_create_component is the canonical way to mount a custom
+    -- UI banner (per core.html:2440 and the lib_scripted_tours.lua:563
+    -- reference pattern). The smoke stub returns a lightweight stand-in
+    -- with a SetVisible() method that records its visibility state so
+    -- tests can assert whether the banner was shown/hidden.
+    get_or_create_component = function(self, name, path, parent)
+        if not _G.w7_ui_components then _G.w7_ui_components = {} end
+        if _G.w7_ui_components[name] then return _G.w7_ui_components[name] end
+        local component = {
+            name = name,
+            path = path,
+            visible = false,
+            SetVisible = function(self, b) self.visible = b == true end,
+            IsVisible = function(self) return self.visible end,
+            SetState = function(self, s) self.state = s end,
+            InterfaceFunction = function(self, fname, ...) end,
+        }
+        _G.w7_ui_components[name] = component
+        return component
+    end,
+    is_ui_created = function(self) return true end,
 }
 
 _G.mission_manager = nil

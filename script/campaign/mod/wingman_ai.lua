@@ -171,6 +171,15 @@ local state = {
 -- return is safe even before the W7 section is loaded.
 fire_advisory_dilemma = nil  -- assigned below by the W7 Advisory block
 
+-- W7: forward declaration for the "Wingman in Control" banner helpers.
+-- engage_autopilot calls show_banner() right before the personality swap;
+-- release_autopilot calls hide_banner() at the end. The take-back button
+-- in the banner fires ComponentLClickUp -> on_take_back_button() ->
+-- wingman_ai.release_autopilot().
+show_banner = nil  -- assigned below by the W7 Banner block
+hide_banner = nil  -- assigned below by the W7 Banner block
+on_take_back_button = nil  -- assigned below by the W7 Banner block
+
 local function reset_turn_state(turn)
     state.order_count_this_turn = 0
     state.diplomacy_count_this_turn = 0
@@ -1741,6 +1750,8 @@ function wingman_ai.engage_autopilot()
 
     state.autopilot_active = true
     save_autopilot_flag(true)
+    -- W7: show the "Wingman in Control" banner (best-effort).
+    if show_banner then pcall(show_banner) end
     log(string.format("engaged: personality=%s ui_locked=%s end_turn_locked=%s",
         tostring(state.applied_personality),
         tostring(ui_locked),
@@ -1767,6 +1778,8 @@ function wingman_ai.release_autopilot()
     state.applied_personality = nil
     state.autopilot_active = false
     save_autopilot_flag(false)
+    -- W7: hide the "Wingman in Control" banner (best-effort).
+    if hide_banner then pcall(hide_banner) end
     log("released")
     return true
 end
@@ -1969,4 +1982,118 @@ do
         ensure_advisory_listener()
         return _orig_fire()
     end
+end
+
+-- ---------------------------------------------------------------------------
+-- W7: "Wingman in Control" banner + take-back button
+--
+-- When Autopilot engages, we mount a persistent banner UI component that
+-- tells the player "Wingman is in control — click here to take back".
+-- The banner stays visible until Autopilot releases. The take-back
+-- button fires a ComponentLClickUp event that the registered listener
+-- catches and calls wingman_ai.release_autopilot().
+--
+-- Pattern (per the Option 1 research):
+--   - core:get_or_create_component(name, path) mounts the .twui.xml
+--   - UIComponent:SetVisible(true|false) shows/hides
+--   - core:add_listener("ComponentLClickUp", condition, callback) wires
+--     the take-back button to release_autopilot
+--
+-- The .twui.xml is shipped at ui/campaign ui/wingman_banner.twui.xml
+-- (created in W7-POLISH-2). The smoke stub for core:get_or_create_component
+-- returns a lightweight stand-in with SetVisible/IsVisible so the test
+-- harness can assert banner visibility.
+-- ---------------------------------------------------------------------------
+
+local BANNER_COMPONENT_NAME = "wingman_banner"
+local BANNER_TWUI_PATH     = "UI/Campaign UI/wingman_banner.twui.xml"
+local TAKEN_BACK_BUTTON_ID = "button_take_back"
+
+--- Mount the banner via core:get_or_create_component and make it visible.
+-- Pcall-guarded: if the UI is not yet created (e.g., before
+-- cm:add_ui_created_callback fires) the banner is a no-op.
+function show_banner()
+    if not core or type(core.get_or_create_component) ~= "function" then return false end
+    local ok, banner = pcall(core.get_or_create_component, core,
+        BANNER_COMPONENT_NAME, BANNER_TWUI_PATH)
+    if not ok or not banner then
+        debug("show_banner: get_or_create_component failed: " .. tostring(banner))
+        return false
+    end
+    -- Re-attach the click listener each time the banner is shown.
+    -- (Idempotent: if the listener is already registered, this is a no-op.)
+    ensure_take_back_listener(banner)
+    if type(banner.SetVisible) == "function" then
+        pcall(banner.SetVisible, banner, true)
+    end
+    log("banner shown")
+    return true
+end
+
+--- Hide the banner. Called from release_autopilot().
+function hide_banner()
+    if not core or type(core.get_or_create_component) ~= "function" then return false end
+    local ok, banner = pcall(core.get_or_create_component, core,
+        BANNER_COMPONENT_NAME, BANNER_TWUI_PATH)
+    if not ok or not banner then return false end
+    if type(banner.SetVisible) == "function" then
+        pcall(banner.SetVisible, banner, false)
+    end
+    log("banner hidden")
+    return true
+end
+
+--- Handle the take-back button click. The ComponentLClickUp listener
+-- routes the event here; we then call release_autopilot().
+-- Pcall-guarded so a Lua error in release_autopilot does not crash
+-- the click handler.
+function on_take_back_button(context)
+    debug("on_take_back_button: fired")
+    pcall(wingman_ai.release_autopilot)
+    return true
+end
+
+-- Idempotent registration of the ComponentLClickUp listener for the
+-- take-back button. Re-registered each time show_banner() is called
+-- (which is safe — core:add_listener is idempotent by name in the
+-- vanilla engine, and even if not, we filter by button id inside the
+-- callback so duplicate registrations are harmless).
+local take_back_listener_registered = false
+function ensure_take_back_listener(banner)
+    if not core or type(core.add_listener) ~= "function" then return end
+    if not banner then return end
+    if take_back_listener_registered then
+        -- Still re-bind so a fresh banner (after save/load) is wired.
+        take_back_listener_registered = false
+    end
+    local ok, err = pcall(core.add_listener,
+        core,
+        "wingman_ai_take_back_button",
+        "ComponentLClickUp",
+        function(ctx)
+            if not ctx then return false end
+            local ok_s, s = pcall(function()
+                if type(ctx.string) == "function" then return ctx:string() end
+                return nil
+            end)
+            if not ok_s or s ~= TAKEN_BACK_BUTTON_ID then return false end
+            return true
+        end,
+        function(ctx) on_take_back_button(ctx) end,
+        false -- not persistent; re-registered on save/load by wingman.init
+    )
+    if not ok then
+        warn("take_back listener: add_listener failed: " .. tostring(err))
+        return
+    end
+    take_back_listener_registered = true
+end
+
+-- Test hook: simulate a take-back button click. This is a public
+-- surface ONLY for the lupa smoke test (test_w7_autopilot.py). In
+-- the real game, the click comes from the ComponentLClickUp event;
+-- in tests, we invoke this directly to exercise the take-back path
+-- without needing a real UI event delivery.
+function wingman_ai._simulate_take_back_button()
+    return on_take_back_button(nil)
 end

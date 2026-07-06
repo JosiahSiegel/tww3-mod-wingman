@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+Wingman — "Wingman in Control" banner UI component (W7 Autopilot mode).
+
+This component is mounted by the W7 Autopilot mode when the user engages
+full UI lock. It surfaces a persistent banner with a "Take Back Control"
+button so the player can reverse the AI takeover at any time.
+
+Layout:
+  - A small horizontal banner anchored to the top-right of the campaign UI
+    (campaign_banners_docker, sibling of the message-event panel).
+  - Contains one text label ("Wingman is in control") and one button
+    (id = "button_take_back").
+
+Wiring (in script/campaign/mod/wingman_ai.lua):
+  - show_banner() calls core:get_or_create_component("wingman_banner",
+    "UI/Campaign UI/wingman_banner.twui.xml") and SetVisible(true).
+  - hide_banner() calls the same and SetVisible(false).
+  - The ComponentLClickUp listener for id "button_take_back" calls
+    on_take_back_button() -> wingman_ai.release_autopilot().
+
+This is a deliberately minimal UI: one label + one button. A future
+polish pass could add a faction-flag icon and a "settings" cog, but
+the contract tested in test_w7_autopilot.py (Tests 8 + 9) is just
+show/hide + take-back click. Keep it that simple unless the user asks
+for more.
+-->
+<component name="wingman_banner">
+
+  <!-- Layout root: a horizontal banner. The campaign UI anchors
+       elements that are children of the top-level UI root into
+       wherever the engine decides. We use a banner_template row. -->
+  <template type="banner_template">
+    <child_component_context />
+    <event id="banner_event" name="banner_event" />
+  </template>
+
+  <!-- The label is purely informational; no event binding. -->
+  <component name="banner_label" type="text_label">
+    <text_value>Wingman is in control — click to take back</text_value>
+  </component>
+
+  <!-- The take-back button. The lua side listens for ComponentLClickUp
+       with context.string == "button_take_back" and calls
+       wingman_ai.release_autopilot(). -->
+  <component name="button_take_back" type="button">
+    <text_value>Take Back Control</text_value>
+  </component>
+
+</component>

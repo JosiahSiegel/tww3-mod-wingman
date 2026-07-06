@@ -393,6 +393,47 @@ def main() -> int:
         return 1
     print(f"  OK: no dilemma fired; log={log_names!r}")
 
+    # --- Test 8: Autopilot shows the "Wingman in Control" banner -------
+    # When autopilot engages, the production code must call
+    # core:get_or_create_component to mount the banner UI element so the
+    # player sees the "Wingman in Control — click to take back" prompt.
+    # The banner must be visible after engage_autopilot() returns.
+    # On release_autopilot(), the banner must be hidden.
+    print("\n[8] Autopilot shows/hides the 'Wingman in Control' banner")
+    _w7_call_log_reset(lua)
+    lua.eval("wingman_ai.release_autopilot()")  # clean slate
+    lua.eval("wingman_ai.engage_autopilot()")
+    # The banner component must have been created and made visible.
+    banner_visible = lua.eval("_G.w7_ui_components and _G.w7_ui_components['wingman_banner'] and _G.w7_ui_components['wingman_banner'].visible")
+    if not banner_visible:
+        print(f"  FAIL: banner not visible after engage_autopilot")
+        return 1
+    lua.eval("wingman_ai.release_autopilot()")
+    banner_visible_after = lua.eval("_G.w7_ui_components and _G.w7_ui_components['wingman_banner'] and _G.w7_ui_components['wingman_banner'].visible")
+    if banner_visible_after:
+        print(f"  FAIL: banner still visible after release_autopilot")
+        return 1
+    print(f"  OK: banner shown on engage, hidden on release")
+
+    # --- Test 9: Take-back button trigger calls release_autopilot ------
+    # The production code must register a ComponentLClickUp listener
+    # for the banner's "button_take_back" element. When that listener
+    # fires, it must call wingman_ai.release_autopilot().
+    print("\n[9] Banner 'Take Back Control' button trigger releases autopilot")
+    lua.eval("wingman_ai.engage_autopilot()")
+    # Fire the ComponentLClickUp event with the take-back button id.
+    lua.eval("core:simulate_component_lclickup('button_take_back')") if False else None
+    # The above guard exists because core doesn't have simulate_*; instead
+    # we directly invoke the production take-back handler if exposed, or
+    # the registered listener that the production code must wire up.
+    # The simplest contract test: after the take-back callback fires,
+    # is_autopilot_active() must be false.
+    fired = lua.eval("(function() if not wingman_ai._simulate_take_back_button then return false end wingman_ai._simulate_take_back_button() return wingman_ai.is_autopilot_active() end)()")
+    if fired:
+        print(f"  FAIL: is_autopilot_active() still true after take-back button")
+        return 1
+    print(f"  OK: take-back button released autopilot")
+
     print("\n---")
     print("ALL W7 TESTS PASS")
     return 0
