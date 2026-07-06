@@ -194,6 +194,14 @@ local state = {
     -- inside hot loops. Refreshed once per turn at the start of
     -- run_for_local_faction.
     cached_periodic_pause_turns = 0,
+    -- W8: counter that ticks once per FactionTurnStart. When it
+    -- reaches state.cached_periodic_pause_turns, the strategic-pause
+    -- dilemma fires. The dilemma handler resets it (to interval
+    -- for "Continue", to 0 for "Take Control").
+    pause_counter = 0,
+    -- W8: when true, the strategic-pause dilemma fires EVERY turn
+    -- (the "Always Pause" choice). Set by choice 4 in the dilemma.
+    always_pause = false,
 }
 
 -- W7: forward declaration so run_for_local_faction (defined above the
@@ -1923,6 +1931,35 @@ function wingman_ai.run_for_local_faction(context)
         end
     end
 
+    -- W8: strategic-pause logic. Runs ONCE per turn, before the W6
+    -- step dispatch. Tick the counter and (if needed) fire the
+    -- 4-button dilemma (Continue / Skip / Take Control / Always Pause).
+    --
+    -- The counter is a separate axis from state.turn_number so that:
+    --   - The pause is "every N turns the AI runs" (not "every N
+    --     calendar turns"). If the user has been manually intervening
+    --     (no autopilot), the counter still ticks toward the next
+    --     pause, but the dilemma only fires when AI is actually running.
+    --   - The "Always Pause" choice sets always_pause=true, which
+    --     makes the dilemma fire every turn regardless of the counter.
+    local s = settings()
+    if s and type(s.wingman_ai_periodic_pause_turns) == "number" then
+        state.cached_periodic_pause_turns = s.wingman_ai_periodic_pause_turns
+    end
+    state.pause_counter = state.pause_counter + 1
+    if wingman_ai._should_fire_strategic_pause
+        and wingman_ai._should_fire_strategic_pause() then
+        -- Don't fire the pause in Advisory mode (Advisory already
+        -- pauses every turn; the strategic pause would be redundant).
+        if not state.advisory_active and fire_strategic_pause_dilemma then
+            fire_strategic_pause_dilemma()
+            if state.skip_remaining_steps then
+                state.skip_remaining_steps = nil
+                return bail("strategic_pause_skip", 0)
+            end
+        end
+    end
+
     local local_faction_key = get_local_faction_name()
     if not local_faction_key then
         return bail("no local faction", 0)
@@ -2214,6 +2251,15 @@ function wingman_ai._reset_for_tests()
     state.spectator_army_cursor = 0
     state.pause_at_turn = 0
     state.cached_periodic_pause_turns = 0
+    state.pause_counter = 0
+    state.always_pause = false
+    strategic_pause_choice_applied_for_turn = -1
+    -- W7: reset the per-turn skip / advisory-auto-accept flags so a
+    -- test that fires run_for_local_faction in sequence doesn't see
+    -- stale state from a prior turn.
+    state.skip_remaining_steps = false
+    state.advisory_auto_accept = false
+    advisory_choice_applied_for_turn = -1
 end
 
 -- ---------------------------------------------------------------------------
@@ -2682,6 +2728,177 @@ do
     local _orig_fire = fire_advisory_dilemma
     fire_advisory_dilemma = function()
         ensure_advisory_listener()
+        return _orig_fire()
+    end
+end
+
+-- ---------------------------------------------------------------------------
+-- W8: Strategic pause (periodic "take a break" every N turns)
+-- ---------------------------------------------------------------------------
+--
+-- When the user has set wingman_ai_periodic_pause_turns > 0, a counter
+-- ticks up on every FactionTurnStart. When the counter reaches the
+-- interval, a 4-button dilemma fires:
+--   1 (FIRST)  = Continue: re-engage autopilot and pause again in N turns.
+--   2 (SECOND) = Skip This Pause: don't run the AI this turn; pause again
+--                in 2N turns (so the user can extend the interval).
+--   3 (THIRD)  = Take Control: release autopilot entirely; pause
+--                counter resets to 0 (no more pauses).
+--   4 (FOURTH) = Always Pause: fire this dilemma every turn (the user
+--                wants the maximum-safety behavior). Resets counter to 0.
+--
+-- This is a "safety valve" beyond the ESC take-back (which fires on
+-- demand) and the Advisory mode (which fires every turn). It's
+-- explicitly opt-in via the wingman_ai_periodic_pause_turns setting.
+--
+-- Design choice: we use a 4-button dilemma (not the 3-button Advisory
+-- one) because the 4th button ("Always Pause") is qualitatively
+-- different from the Advisory semantics — it's a permanent change to
+-- the pause policy, not a per-turn decision.
+
+local function periodic_pause_dilemma_key()
+    return "wingman_periodic_pause_default"
+end
+
+--- W8: build + launch the strategic-pause 4-button dilemma.
+-- Called from run_for_local_faction when state.pause_counter hits
+-- the configured interval. Pcall-guarded end-to-end.
+function fire_strategic_pause_dilemma()
+    if not cm then return end
+    if type(cm.create_dilemma_builder) ~= "function" then return end
+    if type(cm.launch_custom_dilemma_from_builder) ~= "function" then return end
+
+    local key = periodic_pause_dilemma_key()
+    local ok_b, builder = pcall(cm.create_dilemma_builder, cm, key)
+    if not ok_b or not builder then
+        warn("strategic_pause: create_dilemma_builder failed: " .. tostring(builder))
+        return
+    end
+
+    -- Add 4 inert choices. The handler in on_strategic_pause_choice
+    -- does the actual branching; payloads are inert placeholders.
+    local payload
+    if type(cm.create_payload) == "function" then
+        local ok_p, p = pcall(cm.create_payload, cm)
+        if ok_p and p then payload = p end
+    end
+
+    local ok1 = pcall(builder.add_choice_payload, builder, "FIRST", payload)
+    local ok2 = pcall(builder.add_choice_payload, builder, "SECOND", payload)
+    local ok3 = pcall(builder.add_choice_payload, builder, "THIRD", payload)
+    local ok4 = pcall(builder.add_choice_payload, builder, "FOURTH", payload)
+    if not (ok1 and ok2 and ok3 and ok4) then
+        warn("strategic_pause: add_choice_payload failed for one or more buttons")
+    end
+
+    local faction = autopilot_target_faction()
+    local ok_l, _ = pcall(cm.launch_custom_dilemma_from_builder, cm, builder, faction)
+    if not ok_l then
+        warn("strategic_pause: launch_custom_dilemma_from_builder failed")
+    end
+    debug("strategic_pause dilemma fired: key=" .. tostring(key))
+end
+
+--- Handle the strategic-pause DilemmaChoiceMadeEvent. Gates behavior
+-- on the player's 4-button choice:
+--   1 (FIRST)  = Continue: reset counter to interval (next pause in N turns).
+--   2 (SECOND) = Skip This Pause: reset counter to 0 (next pause in N turns
+--                via the natural counter increment — effectively doubles
+--                the interval).
+--   3 (THIRD)  = Take Control: release autopilot; counter = 0.
+--   4 (FOURTH) = Always Pause: set state.always_pause = true; counter = 0.
+local strategic_pause_choice_applied_for_turn = -1
+local function on_strategic_pause_choice_made(context)
+    if not context then return end
+    local ok_d, dilemma = pcall(function()
+        if type(context.dilemma) == "function" then return context:dilemma() end
+        return nil
+    end)
+    if not ok_d then return end
+    if dilemma ~= periodic_pause_dilemma_key() then return end
+    -- Idempotency per turn
+    local current_turn = 0
+    if cm and type(cm.turn_number) == "function" then
+        local ok_t, t = pcall(cm.turn_number, cm)
+        if ok_t then current_turn = tonumber(t) or 0 end
+    end
+    if current_turn <= 0 or current_turn == strategic_pause_choice_applied_for_turn then
+        return
+    end
+    strategic_pause_choice_applied_for_turn = current_turn
+
+    local ok_c, choice = pcall(function()
+        if type(context.choice) == "function" then return context:choice() end
+        return 0
+    end)
+    if not ok_c then choice = 0 end
+    choice = tonumber(choice) or 0
+
+    local interval = state.cached_periodic_pause_turns
+    if type(interval) ~= "number" or interval <= 0 then interval = 10 end
+
+    if choice == 2 then
+        -- Skip: set state.skip_remaining_steps so this turn is no-op;
+        -- counter resets to interval so the next pause is N turns away.
+        state.skip_remaining_steps = true
+        state.pause_counter = 0
+        debug("strategic_pause: player chose SKIP (next pause in " .. tostring(interval) .. " turns)")
+    elseif choice == 3 then
+        -- Take Control: release autopilot; reset counter.
+        if wingman_ai.release_autopilot then pcall(wingman_ai.release_autopilot) end
+        state.pause_counter = 0
+        state.always_pause = false
+        log("strategic_pause: player chose TAKE CONTROL (autopilot released)")
+    elseif choice == 4 then
+        -- Always Pause: fire every turn; reset counter.
+        state.always_pause = true
+        state.pause_counter = 0
+        log("strategic_pause: player chose ALWAYS PAUSE (will fire every turn)")
+    else
+        -- Default: Continue (choice 1) — counter resets to interval.
+        state.pause_counter = 0
+        debug("strategic_pause: player chose CONTINUE (next pause in " .. tostring(interval) .. " turns)")
+    end
+end
+
+--- Idempotent registration of the strategic-pause DilemmaChoiceMadeEvent
+-- listener. Same pattern as ensure_advisory_listener.
+local strategic_pause_listener_registered = false
+local function ensure_strategic_pause_listener()
+    if strategic_pause_listener_registered then return end
+    if not core or type(core.add_listener) ~= "function" then return end
+    local ok, err = pcall(core.add_listener,
+        core,
+        "wingman_ai_strategic_pause_dilemma_choice",
+        "DilemmaChoiceMadeEvent",
+        true,
+        function(ctx) on_strategic_pause_choice_made(ctx) end,
+        false
+    )
+    if not ok then
+        warn("strategic_pause: add_listener failed: " .. tostring(err))
+        return
+    end
+    strategic_pause_listener_registered = true
+end
+
+-- W8: should we fire the strategic-pause dilemma this turn? Returns
+-- true if the configured interval is met (or always_pause is set).
+-- This is a separate function (not inline) so tests can assert
+-- against it without firing the actual dilemma.
+function wingman_ai._should_fire_strategic_pause()
+    if not ai_enabled() then return false end
+    local interval = state.cached_periodic_pause_turns
+    if type(interval) ~= "number" or interval <= 0 then return false end
+    if state.always_pause then return true end
+    return state.pause_counter >= interval
+end
+
+-- Auto-register the listener on first use (mirrors the W7 Advisory pattern).
+do
+    local _orig_fire = fire_strategic_pause_dilemma
+    fire_strategic_pause_dilemma = function()
+        ensure_strategic_pause_listener()
         return _orig_fire()
     end
 end

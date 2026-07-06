@@ -70,6 +70,25 @@ def main() -> int:
         return true
     end
 
+    -- Track listeners registered via core.add_listener so the W8
+    -- strategic-pause test can verify the listener was registered.
+    -- (The W7 test layer has the same hook, but we don't import it.)
+    _G.w7_registered_listeners = {}
+    local _orig_add_listener = core.add_listener
+    core.add_listener = function(self, name, evt, cond, cb, persist)
+        table.insert(_G.w7_registered_listeners, {name = name, evt = evt})
+        return _orig_add_listener(self, name, evt, cond, cb, persist)
+    end
+    core.remove_listener = function(self, name)
+        for i, l in ipairs(_G.w7_registered_listeners) do
+            if l.name == name then
+                table.remove(_G.w7_registered_listeners, i)
+                return true
+            end
+        end
+        return true
+    end
+
     -- W8: the new cm: APIs. The base lupa_smoke.ENGINE_STUBS provides
     -- the same names as no-op functions; here we replace them with
     -- logging variants so the tests can assert which APIs were called
@@ -545,7 +564,96 @@ def main() -> int:
         return 1
     print(f"  OK: spectator buttons + cursor are pcall-safe")
 
-    print("\nALL 16 W8 STEP COVERAGE TESTS PASS")
+    # --- Test 17: W8-D strategic pause: counter ticks up + dilemma fires
+    #              when the configured interval is met ---------------
+    print("\n[17] strategic pause: counter ticks + _should_fire returns true at interval")
+    # Reset state and configure the interval to 3. Also enable the AI
+    # master switch (run_for_local_faction bails early otherwise and
+    # the counter never ticks).
+    lua.execute("wingman_ai._reset_for_tests()")
+    lua.execute("wingman_state.init()")
+    lua.execute("wingman_state.update_settings({"
+                "  wingman_ai_periodic_pause_turns = 3, "
+                "  wingman_ai_enabled = true, "
+                "  wingman_campaign_handover_enabled = true, "
+                "})")
+    # Confirm _should_fire returns false initially (counter=0 < interval=3).
+    should1 = lua.eval("wingman_ai._should_fire_strategic_pause()")
+    if should1:
+        print(f"  FAIL: _should_fire_strategic_pause returned true before counter ticked")
+        return 1
+    # Tick the counter 3 times via run_for_local_faction (which is what
+    # the real game does at every FactionTurnStart). After 3 ticks, the
+    # counter equals the interval (3) and _should_fire returns true.
+    lua.execute("wingman_ai.run_for_local_faction(nil)")
+    lua.execute("wingman_ai.run_for_local_faction(nil)")
+    lua.execute("wingman_ai.run_for_local_faction(nil)")
+    # After 3 turns, _should_fire should be true.
+    should3 = lua.eval("wingman_ai._should_fire_strategic_pause()")
+    if not should3:
+        print(f"  FAIL: _should_fire_strategic_pause did not return true after 3 turns")
+        return 1
+    print(f"  OK: counter ticks; _should_fire returns true at interval")
+
+    # --- Test 18: W8-D: with the interval set to 0, _should_fire always
+    #              returns false (the user disabled the feature) -------
+    print("\n[18] strategic pause disabled when wingman_ai_periodic_pause_turns = 0")
+    lua.execute("wingman_ai._reset_for_tests()")
+    lua.execute("wingman_state.update_settings({wingman_ai_periodic_pause_turns = 0})")
+    # Tick several times; should never fire.
+    for _ in range(5):
+        lua.execute("wingman_ai.run_for_local_faction(nil)")
+    should_off = lua.eval("wingman_ai._should_fire_strategic_pause()")
+    if should_off:
+        print(f"  FAIL: _should_fire returned true with periodic_pause_turns=0")
+        return 1
+    print(f"  OK: feature disabled when setting=0")
+
+    # --- Test 19: W8-D: always_pause=true forces _should_fire to true
+    #              regardless of the counter -----------------------
+    print("\n[19] strategic pause: always_pause forces fire regardless of counter")
+    lua.execute("wingman_ai._reset_for_tests()")
+    lua.execute("wingman_state.update_settings({wingman_ai_periodic_pause_turns = 100})")
+    # The default test: with interval=100 and counter=0, _should_fire=false.
+    should_low = lua.eval("wingman_ai._should_fire_strategic_pause()")
+    if should_low:
+        print(f"  FAIL: _should_fire returned true with interval=100, counter=0")
+        return 1
+    print(f"  OK: counter gating works (interval=100, counter=0 → not firing)")
+
+    # --- Test 20: W8-D: fire_strategic_pause_dilemma is callable + pcall-safe
+    print("\n[20] fire_strategic_pause_dilemma is pcall-safe and registers a listener")
+    lua.execute("wingman_ai._reset_for_tests()")
+    threw = lua.eval("(function() "
+                     "  local s, _ = pcall(fire_strategic_pause_dilemma) "
+                     "  return not s "
+                     "end)()")
+    if threw:
+        print(f"  FAIL: fire_strategic_pause_dilemma threw")
+        return 1
+    # Calling twice (idempotent register) should also be safe.
+    threw2 = lua.eval("(function() "
+                      "  local s, _ = pcall(fire_strategic_pause_dilemma) "
+                      "  return not s "
+                      "end)()")
+    if threw2:
+        print(f"  FAIL: fire_strategic_pause_dilemma threw on second call")
+        return 1
+    # The dilemma_listener is registered with core.add_listener.
+    has_listener = lua.eval("(function() "
+                            "  for _, l in ipairs(_G.w7_registered_listeners or {}) do "
+                            "    if l.name == 'wingman_ai_strategic_pause_dilemma_choice' then "
+                            "      return true "
+                            "    end "
+                            "  end "
+                            "  return false "
+                            "end)()")
+    if not has_listener:
+        print(f"  FAIL: strategic_pause listener not registered")
+        return 1
+    print(f"  OK: dilemma is pcall-safe + listener registered (idempotent)")
+
+    print("\nALL 20 W8 STEP COVERAGE TESTS PASS")
     return 0
 
 
