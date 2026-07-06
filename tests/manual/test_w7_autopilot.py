@@ -342,6 +342,57 @@ def main() -> int:
     # Reset for cleanliness
     lua.eval("wingman_ai.release_autopilot()")
 
+    # --- Test 6: Advisory mode fires a dilemma on FactionTurnStart ----
+    # When advisory_active is true, run_for_local_faction must call
+    # cm:create_dilemma_builder with the configured dilemma key AND
+    # cm:launch_custom_dilemma_from_builder to surface the 3-button
+    # prompt to the player. The dilemma must be built BEFORE any orders
+    # are issued (the prompt is the first thing the player sees at the
+    # start of their turn).
+    print("\n[6] Advisory mode fires a dilemma on FactionTurnStart")
+    _w7_call_log_reset(lua)
+    lua.eval("wingman_ai.release_advisory()")
+    lua.eval("wingman_ai.engage_advisory()")
+    # wingman_state.init() must be called so get_settings() returns the
+    # initialized settings (not the DEFAULTS copy). The AI must also be
+    # enabled for run_for_local_faction to proceed past the ai_enabled()
+    # guard.
+    lua.eval("wingman_state.init()")
+    lua.eval("wingman_state.update_settings({wingman_ai_enabled = true, wingman_campaign_handover_enabled = true})")
+    lua.eval("wingman_ai.run_for_local_faction(nil)")
+    log = _w7_call_log(lua)
+    log_names = [str(entry["name"]) for entry in log]
+    if "create_dilemma_builder" not in log_names:
+        print(f"  FAIL: advisory mode did not fire cm:create_dilemma_builder; log={log_names!r}")
+        return 1
+    if "launch_custom_dilemma_from_builder" not in log_names:
+        print(f"  FAIL: advisory mode did not fire cm:launch_custom_dilemma_from_builder; log={log_names!r}")
+        return 1
+    # Verify the dilemma key was the configured one.
+    dilemma_entry = next((e for e in log if str(e["name"]) == "create_dilemma_builder"), None)
+    if dilemma_entry is None or len(dilemma_entry["args"]) < 1:
+        print(f"  FAIL: create_dilemma_builder missing key arg; log={log!r}")
+        return 1
+    dilemma_key = dilemma_entry["args"][1]  # Lua 1-indexed
+    if dilemma_key != "wingman_advisory_default":
+        print(f"  FAIL: dilemma key mismatch; got {dilemma_key!r}, expected 'wingman_advisory_default'")
+        return 1
+    print(f"  OK: dilemma fired; key={dilemma_key}")
+    lua.eval("wingman_ai.release_advisory()")
+
+    # --- Test 7: run_for_local_faction does NOT fire a dilemma when
+    #             advisory is inactive ---------------------------------
+    print("\n[7] run_for_local_faction does not fire a dilemma when advisory is off")
+    _w7_call_log_reset(lua)
+    # advisory_active is already false from the previous release
+    lua.eval("wingman_ai.run_for_local_faction(nil)")
+    log = _w7_call_log(lua)
+    log_names = [str(entry["name"]) for entry in log]
+    if "create_dilemma_builder" in log_names or "launch_custom_dilemma_from_builder" in log_names:
+        print(f"  FAIL: dilemma fired even though advisory is off; log={log_names!r}")
+        return 1
+    print(f"  OK: no dilemma fired; log={log_names!r}")
+
     print("\n---")
     print("ALL W7 TESTS PASS")
     return 0

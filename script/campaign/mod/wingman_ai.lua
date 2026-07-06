@@ -152,7 +152,24 @@ local state = {
     autopilot_active = false,
     advisory_active  = false,
     applied_personality = nil,
+    -- W7: when true, Advisory mode auto-applies the plan without firing
+    -- the dilemma. Set by the player choosing "Always Apply" (choice==3).
+    advisory_auto_accept = false,
+    -- W7: the dilemma choice handler sets this when the player picks
+    -- "Skip" (choice == 2). The run_for_local_faction entry point checks
+    -- this flag and bails out without running the W6 step dispatch.
+    skip_remaining_steps = false,
 }
+
+-- W7: forward declaration so run_for_local_faction (defined above the
+-- W7 section) can call fire_advisory_dilemma even though the full
+-- definition is below. Lua locals are scoped to their chunk, but a
+-- file-scope function needs to be assigned to a name that run_for_local_faction
+-- can see. We do that by using a module-level global (no `local`) and
+-- assigning it later. Until the assignment, it is nil; run_for_local_faction
+-- guards with `if fire_advisory_dilemma then ... end` so the early
+-- return is safe even before the W7 section is loaded.
+fire_advisory_dilemma = nil  -- assigned below by the W7 Advisory block
 
 local function reset_turn_state(turn)
     state.order_count_this_turn = 0
@@ -1303,6 +1320,22 @@ function wingman_ai.run_for_local_faction(context)
 
     reset_turn_state(turn)
 
+    -- W7 Advisory mode: when advisory_active is true, fire a 3-button
+    -- dilemma (Apply / Skip / Always Apply) at the start of the turn.
+    -- The DilemmaChoiceMadeEvent listener (registered once on init) gates
+    -- whether the W6 step dispatch actually runs. This lets the user
+    -- pick per-turn whether the AI executes its plan.
+    if state.advisory_active and fire_advisory_dilemma then
+        fire_advisory_dilemma()
+        -- The W6 step dispatch is gated by the DilemmaChoiceMadeEvent
+        -- handler — if the player chose "Skip", the listener sets
+        -- state.skip_remaining_steps and we return 0 here.
+        if state.skip_remaining_steps then
+            state.skip_remaining_steps = nil
+            return bail("advisory_skip", 0)
+        end
+    end
+
     local local_faction_key = get_local_faction_name()
     if not local_faction_key then
         return bail("no local faction", 0)
@@ -1774,4 +1807,166 @@ end
 --- True if Advisory mode is currently engaged.
 function wingman_ai.is_advisory_active()
     return state.advisory_active == true
+end
+
+-- ---------------------------------------------------------------------------
+-- W7 Advisory mode: 3-button dilemma prompt
+--
+-- Pattern (per the Option 2 research):
+--   - cm:create_dilemma_builder(key) returns a builder
+--   - builder:add_choice_payload("FIRST"|"SECOND"|"THIRD", payload)
+--   - cm:launch_custom_dilemma_from_builder(builder, faction) surfaces it
+--   - The DilemmaChoiceMadeEvent fires; context:choice() is 1-indexed
+--     (1=FIRST, 2=SECOND, 3=THIRD)
+--   - 1 = Apply this turn's plan (run the W6 step dispatch)
+--   - 2 = Skip this turn (no orders issued; the W6 dispatch returns 0)
+--   - 3 = Always Apply: same as 1, but also flips advisory_auto_accept=true
+--       so future turns auto-skip the prompt (until the user changes it)
+--
+-- Reference: TWW3 vanilla mc_peg_street_pawnshop.lua:41-117 (3-button
+-- pattern with text_display inert choices) and the w3_dlc03_beastmen_moon
+-- triple-launch pattern. Both are confirmed-working CA-blessed patterns.
+-- ---------------------------------------------------------------------------
+
+-- W7: when true, Advisory mode auto-applies the plan without firing the
+-- dilemma. Set by the player choosing "Always Apply" (choice == 3).
+state.advisory_auto_accept = false
+
+-- W7: the dilemma choice handler sets this when the player picks
+-- "Skip" (choice == 2). The run_for_local_faction entry point checks
+-- this flag and bails out without running the W6 step dispatch.
+state.skip_remaining_steps = false
+
+--- Read the configured Advisory dilemma key from settings.
+local function advisory_dilemma_key()
+    local s = w7_settings()
+    if s and type(s.wingman_ai_advisory_dilemma_key) == "string"
+        and s.wingman_ai_advisory_dilemma_key ~= "" then
+        return s.wingman_ai_advisory_dilemma_key
+    end
+    return "wingman_advisory_default"
+end
+
+--- Build + launch the Advisory 3-button dilemma. Fires the prompt at the
+-- start of the turn; the DilemmaChoiceMadeEvent handler runs later and
+-- sets state.skip_remaining_steps or state.advisory_auto_accept.
+-- Pcall-guarded so a missing API does not break the rest of the turn.
+function fire_advisory_dilemma()
+    if not cm then return end
+    if type(cm.create_dilemma_builder) ~= "function" then return end
+    if type(cm.launch_custom_dilemma_from_builder) ~= "function" then return end
+
+    local key = advisory_dilemma_key()
+    local ok_b, builder = pcall(cm.create_dilemma_builder, cm, key)
+    if not ok_b or not builder then
+        warn("advisory: create_dilemma_builder failed: " .. tostring(builder))
+        return
+    end
+
+    -- Add 3 inert choices. The handler in on_dilemma_choice_made does
+    -- the actual branching; payloads are inert placeholders so the
+    -- dilemma UI surfaces with the right button count.
+    local payload
+    if type(cm.create_payload) == "function" then
+        local ok_p, p = pcall(cm.create_payload, cm)
+        if ok_p and p then payload = p end
+    end
+
+    -- FIRST = Apply this turn
+    local ok1, _ = pcall(builder.add_choice_payload, builder, "FIRST", payload)
+    if not ok1 then warn("advisory: add_choice_payload FIRST failed") end
+    -- SECOND = Skip this turn (inert text_display)
+    local ok2, _ = pcall(builder.add_choice_payload, builder, "SECOND", payload)
+    if not ok2 then warn("advisory: add_choice_payload SECOND failed") end
+    -- THIRD = Always apply
+    local ok3, _ = pcall(builder.add_choice_payload, builder, "THIRD", payload)
+    if not ok3 then warn("advisory: add_choice_payload THIRD failed") end
+
+    local faction = autopilot_target_faction()
+    local ok_l, _ = pcall(cm.launch_custom_dilemma_from_builder, cm, builder, faction)
+    if not ok_l then
+        warn("advisory: launch_custom_dilemma_from_builder failed")
+    end
+    debug("advisory dilemma fired: key=" .. tostring(key))
+end
+
+--- Handle DilemmaChoiceMadeEvent. Gates the W6 step dispatch on the
+-- player's choice:
+--   1 (FIRST) = run the plan (default — do nothing special)
+--   2 (SECOND) = skip this turn
+--   3 (THIRD) = run + remember the choice so future turns auto-apply
+-- Idempotent: a second DilemmaChoiceMadeEvent for the same dilemma_key
+-- on the same turn is a no-op (we only act on the FIRST choice).
+local advisory_choice_applied_for_turn = -1  -- turn number we last acted on
+local function on_dilemma_choice_made(context)
+    if not context then return end
+    if not state.advisory_active and not state.advisory_auto_accept then
+        return  -- Advisory was released between fire and choice; ignore
+    end
+    -- Only act on the configured Advisory dilemma key
+    local ok_d, dilemma = pcall(function()
+        if type(context.dilemma) == "function" then return context:dilemma() end
+        return nil
+    end)
+    if not ok_d then return end
+    local expected_key = advisory_dilemma_key()
+    if dilemma ~= expected_key then return end
+    -- Idempotency: only act on the first choice per turn
+    local current_turn = 0
+    if cm and type(cm.turn_number) == "function" then
+        local ok_t, t = pcall(cm.turn_number, cm)
+        if ok_t then current_turn = tonumber(t) or 0 end
+    end
+    if current_turn <= 0 or current_turn == advisory_choice_applied_for_turn then
+        return
+    end
+    advisory_choice_applied_for_turn = current_turn
+
+    local ok_c, choice = pcall(function()
+        if type(context.choice) == "function" then return context:choice() end
+        return 0
+    end)
+    if not ok_c then choice = 0 end
+    choice = tonumber(choice) or 0
+
+    if choice == 2 then
+        state.skip_remaining_steps = true
+        debug("advisory: player chose SKIP")
+    elseif choice == 3 then
+        state.advisory_auto_accept = true
+        debug("advisory: player chose ALWAYS APPLY (future turns auto-apply)")
+    else
+        -- choice == 1 (FIRST) or any other: apply this turn
+        debug("advisory: player chose APPLY (choice=" .. tostring(choice) .. ")")
+    end
+end
+
+--- Register the DilemmaChoiceMadeEvent listener. Idempotent.
+local advisory_listener_registered = false
+local function ensure_advisory_listener()
+    if advisory_listener_registered then return end
+    if not core or type(core.add_listener) ~= "function" then return end
+    local ok, err = pcall(core.add_listener,
+        core,
+        "wingman_ai_advisory_dilemma_choice",
+        "DilemmaChoiceMadeEvent",
+        true,  -- condition; we filter inside on_dilemma_choice_made
+        function(ctx) on_dilemma_choice_made(ctx) end,
+        false -- not persistent: re-registered on save/load by wingman.init
+    )
+    if not ok then
+        warn("advisory: add_listener failed: " .. tostring(err))
+        return
+    end
+    advisory_listener_registered = true
+end
+
+-- Auto-register the listener on first use. Called from fire_advisory_dilemma
+-- so we don't need a separate bootstrap path.
+do
+    local _orig_fire = fire_advisory_dilemma
+    fire_advisory_dilemma = function()
+        ensure_advisory_listener()
+        return _orig_fire()
+    end
 end
