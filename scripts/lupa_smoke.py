@@ -2,7 +2,7 @@
 """CI smoke test: verify all Wingman Lua modules load + execute together.
 
 Run from the repo root:
-    PYTHONIOENCODING=utf-8 python scripts/lupa_smoke.py
+    python scripts/lupa_smoke.py
 
 Exits 0 on success, 1 on any failure. Used as the "smoke before pack" gate
 in .github/workflows/release.yml.
@@ -11,10 +11,27 @@ The Lua source files are loaded in dependency order (state -> safety ->
 missions -> rules -> campaign -> battle -> init). After load, each public
 bootstrap entry point is invoked; pcall must return truthy (or a truthy
 tuple) for the test to pass.
+
+REQUIREMENTS
+    pip install lupa
+
+    Lupa is a C extension; if `python` resolves to a Python that
+    doesn't have lupa, try `py` (the Python launcher) or invoke the
+    Python that has lupa directly:
+
+        py scripts/lupa_smoke.py
+        # or
+        C:/path/to/python.exe scripts/lupa_smoke.py
+
+    The script auto-detects when lupa is missing and prints the
+    concrete fix for your platform (the executable that has lupa
+    installed, plus the install command for the current Python).
 """
+
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 
 
@@ -333,13 +350,73 @@ def _pcall_ok(result) -> bool:
     return bool(result)
 
 
+def _find_python_with_lupa() -> list[str]:
+    """Search for other Python interpreters on PATH that have lupa installed.
+
+    Returns a list of executable paths that successfully import lupa.
+    The intent is to give the user a concrete next-step command
+    ("use this Python instead of `python`") when their `python`
+    resolves to a different interpreter than the one lupa was
+    installed into.
+    """
+    candidates = []
+    # Probe common Python launcher / interpreter names.
+    probes = [
+        ["py", "-3.11", "-c", "import lupa; print(lupa.__file__)"],
+        ["py", "-3.12", "-c", "import lupa; print(lupa.__file__)"],
+        ["py", "-3.13", "-c", "import lupa; print(lupa.__file__)"],
+        ["py",          "-c", "import lupa; print(lupa.__file__)"],
+        ["python3",     "-c", "import lupa; print(lupa.__file__)"],
+        ["python",      "-c", "import lupa; print(lupa.__file__)"],
+    ]
+    for cmd in probes:
+        try:
+            r = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=10,
+            )
+            if r.returncode == 0:
+                # The probe already imports lupa; the print tells us
+                # which interpreter succeeded (via __file__). We need
+                # the interpreter path too — ask it again.
+                r2 = subprocess.run(
+                    [cmd[0]] + cmd[1:-2] + ["-c", "import sys; print(sys.executable)"],
+                    capture_output=True, text=True, timeout=10,
+                )
+                if r2.returncode == 0:
+                    exe = r2.stdout.strip().splitlines()[-1]
+                    if exe and exe not in candidates:
+                        candidates.append(exe)
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            continue
+    return candidates
+
+
 def main() -> int:
     # Fail fast if lupa is missing rather than half-loading and crashing later.
     try:
         import lupa  # noqa: F401  (presence check)
         from lupa import LuaRuntime
     except ImportError:
-        print("FAIL: lupa not installed. Run: pip install lupa", file=sys.stderr)
+        here = sys.executable or "python"
+        msg = [
+            f"FAIL: lupa is not importable from this Python ({here}).",
+            "",
+            "Most common cause: `python` resolves to a different interpreter",
+            "than the one lupa was installed into (lupa is a C extension and",
+            "is installed per-Python, not globally).",
+            "",
+            "Quick fix — use the Python that has lupa installed:",
+        ]
+        alternatives = _find_python_with_lupa()
+        for alt in alternatives:
+            if alt and alt != here:
+                msg.append(f"    {alt} scripts/lupa_smoke.py")
+        msg.extend([
+            "",
+            "Or install lupa into the Python that `python` resolves to:",
+            f"    {here} -m pip install lupa",
+        ])
+        print("\n".join(msg), file=sys.stderr)
         return 1
 
     lua = LuaRuntime(unpack_returned_tuples=True)
