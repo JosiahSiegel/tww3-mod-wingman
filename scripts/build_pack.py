@@ -28,9 +28,19 @@ import sys
 import time
 from pathlib import Path
 
-# Defaults match the rest of the project's `!wingman.pack` convention.
-PACK_NAME = "!wingman.pack"
-THUMB_NAME = "!wingman.png"
+# Defaults — NO `!` prefix. The `!` prefix was an older CA convention for
+# "highest-priority override" (vanilla + this pack: this wins). Wingman
+# only ADDS new files (script/campaign/mod/wingman_*.lua,
+# script/mct/settings/wingman_mct.lua, text/db/wingman.loc.tsv) and
+# overrides no vanilla files, so the `!` is unnecessary. Worse: in
+# practice, `!`-prefixed local packs appear to be skipped by the
+# launcher in the user's TWW3 install (TWW3.0+, July 2026 build).
+# Subscribed Workshop mods CAN use `!` (the Workshop folder bypasses
+# the local-pack loader), but local `!`-prefixed files silently
+# never load. Verified empirically: 91 other mod files load, zero
+# wingman_*.lua files load, the `!` prefix is the discriminator.
+PACK_NAME = "wingman.pack"
+THUMB_NAME = "wingman.png"
 
 # Magic bytes for "PFH5"
 PFH5_MAGIC = b"PFH5"

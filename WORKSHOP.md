@@ -2,8 +2,8 @@
 
 ## Required Artifacts
 
-- `!wingman.pack` (built via `python scripts/build_pack.py` — see `pack/BUILD_INSTRUCTIONS.md`)
-- `!wingman.png` (thumbnail, **256×256 PNG, under 1 MB strict**, filename must match pack base)
+- `wingman.pack` (built via `python scripts/build_pack.py` — see `pack/BUILD_INSTRUCTIONS.md`)
+- `wingman.png` (thumbnail, **256×256 PNG, under 1 MB strict**, filename must match pack base)
 
 ## Workshop Item Settings
 
@@ -12,12 +12,12 @@
 - **Tags**: `Campaign`, `UI`
 - **Required Items**: MCT (Workshop ID `2927955021`)
 - **Visibility**: Hidden first, switch to Public only after smoke testing
-- **Preview Image**: `!wingman.png`
+- **Preview Image**: `wingman.png`
 
 ## Upload Steps
 
 1. Build pack: `python scripts/build_pack.py` (or follow `pack/BUILD_INSTRUCTIONS.md`).
-2. Place `dist\!wingman.pack` and `dist\!wingman.png` in TWW3 `data\` folder.
+2. Place `dist\wingman.pack` and `dist\wingman.png` in TWW3 `data\` folder.
 3. Launch **original Total War launcher** (NOT EA Mod Manager).
 4. Open **Mod Manager**.
 5. Right-click Wingman → **Upload**.

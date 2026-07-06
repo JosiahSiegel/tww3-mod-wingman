@@ -2,7 +2,7 @@
 
 End-to-end guide for running Wingman on a development machine **before** publishing to Steam Workshop. Covers the build, install, in-game smoke, and the iterative dev loop.
 
-> **Audience**: Contributors, testers, and the author. **Not for end-users** — they get `!wingman.pack` from the Workshop.
+> **Audience**: Contributors, testers, and the author. **Not for end-users** — they get `wingman.pack` from the Workshop.
 
 ## TL;DR (5-minute smoke)
 
@@ -17,8 +17,8 @@ python scripts/build_pack.py
 
 # 3. Copy into TWW3 (replace the path with your actual install)
 $TWW3 = "C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III"   # adjust if needed
-Copy-Item "dist\!wingman.pack" "$TWW3\data\!wingman.pack" -Force
-Copy-Item "dist\!wingman.png"  "$TWW3\data\!wingman.png"  -Force
+Copy-Item "dist\wingman.pack" "$TWW3\data\wingman.pack" -Force
+Copy-Item "dist\wingman.png"  "$TWW3\data\wingman.png"  -Force
 
 # 4. Launch TWW3 (original launcher, NOT EA Mod Manager)
 # 5. Mod Manager: tick MCT + Wingman → Play
@@ -49,7 +49,7 @@ If the init line appears, the mod is at least bootable. Run the full scenarios f
 python scripts/build_pack.py
 ```
 
-Output: `dist/!wingman.pack` (~370 KB) and `dist/!wingman.png`. The script validates the PFH5 magic on the output.
+Output: `dist/wingman.pack` (~370 KB) and `dist/wingman.png`. The script validates the PFH5 magic on the output.
 
 **Iterative dev loop time**: < 1 second from edit to fresh pack.
 
@@ -61,8 +61,8 @@ Replace `<TWW3>` with your actual install path. Default Steam is `C:\Program Fil
 
 ```powershell
 $TWW3 = "C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III"   # adjust if needed
-Copy-Item "dist\!wingman.pack" "$TWW3\data\!wingman.pack" -Force
-Copy-Item "dist\!wingman.png"  "$TWW3\data\!wingman.png"  -Force
+Copy-Item "dist\wingman.pack" "$TWW3\data\wingman.pack" -Force
+Copy-Item "dist\wingman.png"  "$TWW3\data\wingman.png"  -Force
 ```
 
 The filename MUST match the `.pack` base name exactly (case-sensitive, no extra characters).
@@ -100,7 +100,7 @@ To pick the original launcher:
 ### Enable the mods
 
 1. In the launcher, click **Mod Manager**.
-2. Tick **Mod Configuration Tool** (subscribed from Workshop) and **!wingman** (just installed to `data/`). **MCT first** (load order).
+2. Tick **Mod Configuration Tool** (subscribed from Workshop) and **wingman** (just installed to `data/`). **MCT first** (load order).
 3. Click **Play**.
 
 ### Verify boot
@@ -164,7 +164,7 @@ If 1–7 pass, the mod is at least bootable and the core orchestration works.
 │  ↓                                                       │
 │  python scripts/build_pack.py   (< 1s)                  │
 │  ↓                                                       │
-│  Copy dist\!wingman.pack to <TWW3>\data\   (~1s)        │
+│  Copy dist\wingman.pack to <TWW3>\data\   (~1s)        │
 │  ↓                                                       │
 │  (Optional) tail the script log for live feedback        │
 │  ↓                                                       │
@@ -214,7 +214,7 @@ done
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Mod doesn't appear in Mod Manager | `.pack` not in `<TWW3>/data/`, or wrong filename | Re-run `python scripts/build_pack.py` and copy. Filename must be `!wingman.pack`. |
+| Mod doesn't appear in Mod Manager | `.pack` not in `<TWW3>/data/`, or wrong filename | Re-run `python scripts/build_pack.py` and copy. Filename must be `wingman.pack`. |
 | Mod ticked but campaign crashes on load | Lua syntax error | Open `script_log_*.txt`, find first Lua error line, fix it. |
 | `[Wingman] WARNING: MCT ... not loaded` | MCT not subscribed or not ticked | Subscribe via Steam, tick before Wingman in Mod Manager. |
 | `[Wingman] init` line never appears | `enable_console_logging` flag missing | Create the empty file in `<TWW3>/data/script/`. |
@@ -254,8 +254,8 @@ Wingman 0.1.0-alpha local test — release ____
 [ ] python scripts/lupa_smoke.py — PASS
 [ ] python scripts/lupa_smoke.py — PASS (re-run after any change)
 [ ] W6 + W7 + W8 test suites — PASS
-[ ] Step 1: !wingman.pack built (timestamp fresh)
-[ ] Step 2: !wingman.pack + !wingman.png in <TWW3>\data\
+[ ] Step 1: wingman.pack built (timestamp fresh)
+[ ] Step 2: wingman.pack + wingman.png in <TWW3>\data\
 [ ] Step 3: enable_console_logging exists
 [ ] Step 4: Original launcher → Mod Manager → MCT + Wingman ticked → Play
 [ ] Step 4 verify: [Wingman] init complete. line in script_log_*.txt

@@ -193,7 +193,7 @@ def build(out_path: Path) -> None:
 
 def main() -> int:
     here = Path(__file__).resolve().parent
-    out = here / "!wingman.png"
+    out = here / "wingman.png"
     build(out)
     size_bytes = out.stat().st_size
     print(f"Wrote {out}  ({size_bytes} bytes)")

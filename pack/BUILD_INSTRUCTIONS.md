@@ -1,4 +1,4 @@
-# Building `!wingman.pack`
+# Building `wingman.pack`
 
 The repo ships a **pure-Python PFH5 pack builder** at `scripts/build_pack.py` — zero external dependencies, no GUI tools, no large binary downloads. It reads the spec at <https://github.com/TotalWar-Modding/docs/blob/master/pack%20file%20format.md> and writes a valid Mod-type `.pack` archive.
 
@@ -19,8 +19,8 @@ python scripts/build_pack.py
 
 Produces:
 
-- `dist/!wingman.pack` — PFH5 archive containing every file under `script/` and `text/`
-- `dist/!wingman.png` — copy of the Workshop thumbnail
+- `dist/wingman.pack` — PFH5 archive containing every file under `script/` and `text/`
+- `dist/wingman.png` — copy of the Workshop thumbnail
 
 The script validates the PFH5 magic on the output.
 
@@ -32,15 +32,15 @@ Replace `<TWW3>` with your actual install path. The default Steam install is `C:
 
 ```powershell
 $TWW3 = "C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III"   # adjust if needed
-Copy-Item "dist\!wingman.pack" "$TWW3\data\!wingman.pack" -Force
-Copy-Item "dist\!wingman.png"  "$TWW3\data\!wingman.png"  -Force
+Copy-Item "dist\wingman.pack" "$TWW3\data\wingman.pack" -Force
+Copy-Item "dist\wingman.png"  "$TWW3\data\wingman.png"  -Force
 ```
 
 **Bash**:
 
 ```bash
 TWW3="/c/Program Files (x86)/Steam/steamapps/common/Total War WARHAMMER III"   # adjust if needed
-cp dist/'!wingman.pack' dist/'!wingman.png' "$TWW3/data/"
+cp dist/'wingman.pack' dist/'wingman.png' "$TWW3/data/"
 ```
 
 ### 3. Enable Script Logging (one-time)
@@ -63,7 +63,7 @@ That empty file (no extension) makes `out("[Wingman] ...")` lines visible in `sc
 ```bash
 python -c "
 import struct
-with open('dist/!wingman.pack', 'rb') as f:
+with open('dist/wingman.pack', 'rb') as f:
     magic = f.read(4)
     type_bm, _, _, fn_n, fn_sz, ts, _ = struct.unpack('<7I', f.read(28))
     print(f'Magic: {magic}, Type: {type_bm & 0xF}, Files: {fn_n}')
@@ -82,7 +82,7 @@ with open('dist/!wingman.pack', 'rb') as f:
    - **Description**: contents of `WORKSHOP_DESCRIPTION.md`
    - **Tags**: `Campaign`, `UI`
    - **Required items**: MCT (Workshop ID `2927955021`)
-   - **Preview**: `!wingman.png` (already embedded)
+   - **Preview**: `wingman.png` (already embedded)
 5. Publish as **Hidden** for smoke verification.
 6. Subscribe from a clean Steam profile and run S7 from the scenarios doc.
 7. Switch to **Public** only when S7 passes.
@@ -92,7 +92,7 @@ with open('dist/!wingman.pack', 'rb') as f:
 1. Make your code changes.
 2. Bump `CHANGELOG.md` version.
 3. Re-run `python scripts/build_pack.py`.
-4. Copy the new `dist/!wingman.pack` + `!wingman.png` into `<TWW3>/data/`.
+4. Copy the new `dist/wingman.pack` + `wingman.png` into `<TWW3>/data/`.
 5. Test in-game.
 6. Original launcher → Mod Manager → right-click Wingman → **Update**.
 7. Add **change notes** describing what changed.
