@@ -462,7 +462,90 @@ def main() -> int:
             return 1
     print(f"  OK: all W8 state cleared by _reset_for_tests")
 
-    print("\nALL 12 W8 STEP COVERAGE TESTS PASS")
+    # --- Test 13: W8 spectator panel: show_spectator_panel mounts and
+    #              makes the wingman_spectator component visible ----
+    # NOTE: show_spectator_panel is a module-internal global (the W7
+    # banner helpers use the same pattern: they're file-scope functions
+    # called as globals, NOT members of the wingman_ai table). The
+    # wingman_ai._spectator_* accessors are the public surface; the
+    # show/hide helpers are reached via engage_autopilot / release_autopilot.
+    print("\n[13] show_spectator_panel mounts the panel and sets visible=true")
+    _w8_call_log_reset(lua)
+    # Reset the w8_ui_components table to a clean state.
+    lua.execute("_G.w7_ui_components = {}")
+    r = lua.eval("show_spectator_panel()")
+    if not r:
+        print(f"  FAIL: show_spectator_panel returned {r!r}")
+        return 1
+    panel_visible = lua.eval("_G.w7_ui_components['wingman_spectator'].visible")
+    if not panel_visible:
+        print(f"  FAIL: panel not visible after show; got {panel_visible!r}")
+        return 1
+    # And the panel must be registered in _G.w7_ui_components.
+    has_panel = lua.eval("type(_G.w7_ui_components['wingman_spectator']) == 'table'")
+    if not has_panel:
+        print(f"  FAIL: panel not registered in _G.w7_ui_components")
+        return 1
+    print(f"  OK: panel mounted + visible=true + registered")
+
+    # --- Test 14: hide_spectator_panel flips visible back to false ---
+    print("\n[14] hide_spectator_panel flips visible to false")
+    r = lua.eval("hide_spectator_panel()")
+    if not r:
+        print(f"  FAIL: hide_spectator_panel returned {r!r}")
+        return 1
+    panel_visible = lua.eval("_G.w7_ui_components['wingman_spectator'].visible")
+    if panel_visible:
+        print(f"  FAIL: panel still visible after hide; got {panel_visible!r}")
+        return 1
+    print(f"  OK: panel hidden")
+
+    # --- Test 15: update_spectator_panel_data does not throw even
+    #              when the panel has no seeded children ------------
+    print("\n[15] update_spectator_panel_data is pcall-safe")
+    r = lua.eval("show_spectator_panel()")
+    if not r:
+        print(f"  FAIL: re-show failed; got {r!r}")
+        return 1
+    # update_spectator_panel_data reads from _spectator_data() and
+    # pushes the values into the panel's child labels via SetState.
+    # The stub children are auto-created via FindComponent, so the
+    # call should succeed.
+    threw = lua.eval("(function() "
+                     "  local s, _ = pcall(update_spectator_panel_data) "
+                     "  return not s "
+                     "end)()")
+    if threw:
+        print(f"  FAIL: update_spectator_panel_data threw")
+        return 1
+    print(f"  OK: update_spectator_panel_data is pcall-safe")
+
+    # --- Test 16: on_follow_next_army cycles cursor and is pcall-safe -
+    print("\n[16] on_follow_next_army cycles cursor + is pcall-safe")
+    # Empty list: returns nil, doesn't throw.
+    r = lua.eval("wingman_ai._spectator_advance_army_cursor()")
+    if r is not None:
+        print(f"  FAIL: empty cursor returned {r!r}; expected nil")
+        return 1
+    # on_follow_next_army with empty list is a safe no-op.
+    threw = lua.eval("(function() "
+                     "  local s, _ = pcall(on_follow_next_army, {}) "
+                     "  return not s "
+                     "end)()")
+    if threw:
+        print(f"  FAIL: on_follow_next_army threw")
+        return 1
+    # on_close_spectator is a safe no-op.
+    threw = lua.eval("(function() "
+                     "  local s, _ = pcall(on_close_spectator, {}) "
+                     "  return not s "
+                     "end)()")
+    if threw:
+        print(f"  FAIL: on_close_spectator threw")
+        return 1
+    print(f"  OK: spectator buttons + cursor are pcall-safe")
+
+    print("\nALL 16 W8 STEP COVERAGE TESTS PASS")
     return 0
 
 

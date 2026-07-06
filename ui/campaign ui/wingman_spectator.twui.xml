@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+Wingman — Spectator Panel (W8).
+
+This component is mounted by W8 when the user is in Autopilot or
+Advisory mode AND wants to see what Wingman is doing turn-by-turn.
+It is richer than the W7 "Wingman in Control" banner (which is a
+single text label + take-back button). The spectator panel shows:
+
+  - Current turn number
+  - Per-turn decision log (last N decisions, scrollable)
+  - A "Follow Next AI Army" button that cycles through the player's
+    friendly armies and centers the camera on each one in turn.
+  - A "Close" button that hides the panel (Wingman keeps running).
+
+The panel is intentionally read-only: it shows the AI's actions, but
+it does not let the user take actions on the campaign map. The take-
+back control is in the W7 banner (which is always shown alongside
+this panel in Autopilot mode).
+
+Layout: anchored to the bottom-left of the campaign UI. Sibling of
+the mini-map. Width: ~360px. Height: ~280px.
+
+Wiring (in script/campaign/mod/wingman_ai.lua):
+
+  - show_spectator_panel() calls core:get_or_create_component(
+    "wingman_spectator", "UI/Campaign UI/wingman_spectator.twui.xml")
+    and SetVisible(true).
+  - hide_spectator_panel() sets SetVisible(false).
+  - The "Follow Next AI Army" button (id = "button_follow_army")
+    fires ComponentLClickUp -> on_follow_next_army() which calls
+    wingman_ai._spectator_advance_army_cursor() and centers the
+    campaign camera on the next friendly army.
+  - The "Close" button (id = "button_close_spectator") fires
+    ComponentLClickUp -> on_close_spectator() which calls
+    wingman_ai.hide_spectator_panel().
+
+The panel data is provided by wingman_ai._spectator_data() (returns
+a flat table with the per-turn decision log + counters). The
+.twui.xml can read this via Lua helpers; we don't try to bind
+individual text fields (the engine's text-binding is fragile).
+The label values are set programmatically via InterfaceFunction()
+calls in show_spectator_panel() — kept simple on purpose.
+
+The contract tested in test_w8_step_coverage.py is:
+  - show_spectator_panel mounts the component.
+  - hide_spectator_panel hides it.
+  - on_follow_next_army cycles through the spectator army list.
+  - on_close_spectator hides the panel.
+-->
+<component name="wingman_spectator">
+
+  <!-- Layout root: a vertical stack of rows. The campaign UI anchors
+       elements that are children of the top-level UI root into
+       wherever the engine decides. We use a vertical stack template
+       for predictable layout. -->
+  <template type="vertical_stack">
+    <child_component_context />
+    <event id="spectator_event" name="spectator_event" />
+  </template>
+
+  <!-- Turn number label. Set programmatically by show_spectator_panel.
+       Default text is a placeholder; the real text is updated on each
+       FactionTurnStart. -->
+  <component name="spectator_turn_label" type="text_label">
+    <text_value>Wingman Spectator — turn 0</text_value>
+  </component>
+
+  <!-- Per-turn counter summary. A single line like "attacked=2,
+       moved=5, built=1, healed=1, post_battle=1, diplo=0".
+       Updated on each FactionTurnStart. -->
+  <component name="spectator_counters_label" type="text_label">
+    <text_value>attacked=0 garrisoned=0 researched=0 rites=0 diplo=0 built=0 recruit=0 moves=0 healed=0 post_battle=0 heroes=0</text_value>
+  </component>
+
+  <!-- Decision log text. The most recent N entries are joined into a
+       single multi-line string. The .twui.xml doesn't have native
+       multi-line text support, so we use a single text_label that
+       wraps. For longer logs, the engine clips and adds an
+       ellipsis. Acceptable for v0.1. -->
+  <component name="spectator_decision_log" type="text_label">
+    <text_value>(no actions this turn)</text_value>
+  </component>
+
+  <!-- Follow Next AI Army button. Cycles through the spectator army
+       list and centers the campaign camera on each one. The Lua
+       side calls wingman_ai._spectator_advance_army_cursor() to
+       advance the cursor; the camera-center call is the engine's
+       cm:scroll_camera_to_position (or a uim scroll-to-army
+       helper). -->
+  <component name="button_follow_army" type="button">
+    <text_value>Follow Next AI Army</text_value>
+  </component>
+
+  <!-- Close button. Hides the panel. Wingman keeps running. -->
+  <component name="button_close_spectator" type="button">
+    <text_value>Close Panel</text_value>
+  </component>
+
+</component>

@@ -256,14 +256,33 @@ _G.core = {
     get_or_create_component = function(self, name, path, parent)
         if not _G.w7_ui_components then _G.w7_ui_components = {} end
         if _G.w7_ui_components[name] then return _G.w7_ui_components[name] end
+        local children = {}
         local component = {
             name = name,
             path = path,
             visible = false,
+            children = children,
             SetVisible = function(self, b) self.visible = b == true end,
             IsVisible = function(self) return self.visible end,
             SetState = function(self, s) self.state = s end,
             InterfaceFunction = function(self, fname, ...) end,
+            -- W8: FindComponent walks the in-memory child list. The
+            -- .twui.xml panel defines child components with id "spectator_turn_label",
+            -- "spectator_counters_label", etc. Tests seed the children
+            -- via _G.w8_spectator_children[name] = {[child_id] = stand_in}.
+            FindComponent = function(self, child_id)
+                if _G.w8_spectator_children and _G.w8_spectator_children[name] then
+                    local child = _G.w8_spectator_children[name][child_id]
+                    if child then return child end
+                end
+                -- Default: return a stand-in with SetState so pcall-guarded
+                -- code doesn't crash.
+                return {
+                    name = child_id,
+                    SetState = function(self, s) self.state = s end,
+                    SetText = function(self, s) self.text = s end,
+                }
+            end,
         }
         _G.w7_ui_components[name] = component
         return component

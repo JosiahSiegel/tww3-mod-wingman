@@ -215,6 +215,19 @@ show_banner = nil  -- assigned below by the W7 Banner block
 hide_banner = nil  -- assigned below by the W7 Banner block
 on_take_back_button = nil  -- assigned below by the W7 Banner block
 
+-- W8: forward declaration for the spectator panel helpers.
+-- engage_autopilot calls show_spectator_panel() right after the W7
+-- banner so the user sees both at once. release_autopilot calls
+-- hide_spectator_panel() at the end. The follow-next-army and
+-- close buttons route through on_follow_next_army and
+-- on_close_spectator, which call wingman_ai.* and the spectator
+-- cursor advance.
+show_spectator_panel = nil
+hide_spectator_panel = nil
+on_follow_next_army = nil
+on_close_spectator = nil
+update_spectator_panel_data = nil
+
 local function reset_turn_state(turn)
     state.order_count_this_turn = 0
     state.diplomacy_count_this_turn = 0
@@ -2005,6 +2018,10 @@ function wingman_ai.run_for_local_faction(context)
             state.diplomacy_count_this_turn, diplomacy_per_turn_setting()))
     end
 
+    -- W8: refresh the spectator panel labels so they reflect the
+    -- current turn's state. Pcall-guarded; missing panel is fine.
+    if update_spectator_panel_data then pcall(update_spectator_panel_data) end
+
     return state.order_count_this_turn
 end
 
@@ -2428,6 +2445,11 @@ function wingman_ai.engage_autopilot()
     if ensure_esc_take_back_registered then pcall(ensure_esc_take_back_registered) end
     -- W7: show the "Wingman in Control" banner (best-effort).
     if show_banner then pcall(show_banner) end
+    -- W8: show the spectator panel alongside the W7 banner. The
+    -- panel is hidden by default in non-Autopilot modes (the user
+    -- can open it manually if we ever add a settings toggle; for
+    -- v0.1 it follows the autopilot state). Best-effort.
+    if show_spectator_panel then pcall(show_spectator_panel) end
     log(string.format("engaged: personality=%s ui_locked=%s end_turn_locked=%s",
         tostring(state.applied_personality),
         tostring(ui_locked),
@@ -2458,6 +2480,8 @@ function wingman_ai.release_autopilot()
     if release_esc_take_back then pcall(release_esc_take_back) end
     -- W7: hide the "Wingman in Control" banner (best-effort).
     if hide_banner then pcall(hide_banner) end
+    -- W8: hide the spectator panel alongside the W7 banner. Best-effort.
+    if hide_spectator_panel then pcall(hide_spectator_panel) end
     log("released")
     return true
 end
@@ -2687,6 +2711,18 @@ local BANNER_COMPONENT_NAME = "wingman_banner"
 local BANNER_TWUI_PATH     = "UI/Campaign UI/wingman_banner.twui.xml"
 local TAKEN_BACK_BUTTON_ID = "button_take_back"
 
+-- W8: Spectator panel constants. The panel is a richer, separate UI
+-- component that shows the per-turn decision log + a "follow next
+-- AI army" button. It is mounted alongside the W7 banner in
+-- Autopilot mode and (optionally) in Advisory mode.
+local SPECTATOR_COMPONENT_NAME = "wingman_spectator"
+local SPECTATOR_TWUI_PATH     = "UI/Campaign UI/wingman_spectator.twui.xml"
+local SPECTATOR_FOLLOW_BUTTON = "button_follow_army"
+local SPECTATOR_CLOSE_BUTTON  = "button_close_spectator"
+local SPECTATOR_TURN_LABEL    = "spectator_turn_label"
+local SPECTATOR_COUNTERS_LBL  = "spectator_counters_label"
+local SPECTATOR_LOG_LABEL     = "spectator_decision_log"
+
 --- Mount the banner via core:get_or_create_component and make it visible.
 -- Pcall-guarded: if the UI is not yet created (e.g., before
 -- cm:add_ui_created_callback fires) the banner is a no-op.
@@ -2837,4 +2873,203 @@ end
 function release_esc_take_back()
     if not cm or type(cm.release_escape_key) ~= "function" then return end
     pcall(cm.release_escape_key, cm, ESC_CALLBACK_NAME)
+end
+
+-- ---------------------------------------------------------------------------
+-- W8: Spectator panel
+-- ---------------------------------------------------------------------------
+--
+-- The spectator panel is a richer UI than the W7 banner. It shows:
+--   - The current turn number.
+--   - The per-turn counters (attacked, garrisoned, ...).
+--   - The decision log (last N entries as a single text_label).
+--   - A "Follow Next AI Army" button that cycles through the player's
+--     friendly armies and centers the campaign camera on each one.
+--   - A "Close" button that hides the panel (Wingman keeps running).
+--
+-- The panel is mounted via core:get_or_create_component (the same
+-- pattern the W7 banner uses). It is shown during Autopilot mode
+-- (alongside the W7 banner) and can be shown on demand in Advisory
+-- mode if the user wants to watch Wingman's plan before clicking
+-- Apply.
+--
+-- Wiring:
+--   - show_spectator_panel: get_or_create + SetVisible(true) +
+--     populate the turn/counter/log labels with the current
+--     spectator_data() + register the click listener for the two
+--     buttons.
+--   - hide_spectator_panel: get_or_create + SetVisible(false).
+--   - on_follow_next_army: cycle the cursor + center the camera.
+--   - on_close_spectator: hide_spectator_panel.
+--   - update_spectator_panel_data: refresh the labels from
+--     spectator_data(). Called at the end of every FactionTurnStart
+--     so the panel reflects the current state.
+
+--- Show the spectator panel. Idempotent.
+function show_spectator_panel()
+    if not core or type(core.get_or_create_component) ~= "function" then return false end
+    local ok, panel = pcall(core.get_or_create_component, core,
+        SPECTATOR_COMPONENT_NAME, SPECTATOR_TWUI_PATH)
+    if not ok or not panel then
+        debug("show_spectator_panel: get_or_create_component failed: " .. tostring(panel))
+        return false
+    end
+    -- Bind the click listener for the two buttons. Idempotent.
+    ensure_spectator_listener(panel)
+    -- Populate labels from the current state.
+    if update_spectator_panel_data then pcall(update_spectator_panel_data) end
+    if type(panel.SetVisible) == "function" then
+        pcall(panel.SetVisible, panel, true)
+    end
+    log("spectator panel shown")
+    return true
+end
+
+--- Hide the spectator panel. Idempotent.
+function hide_spectator_panel()
+    if not core or type(core.get_or_create_component) ~= "function" then return false end
+    local ok, panel = pcall(core.get_or_create_component, core,
+        SPECTATOR_COMPONENT_NAME, SPECTATOR_TWUI_PATH)
+    if not ok or not panel then return false end
+    if type(panel.SetVisible) == "function" then
+        pcall(panel.SetVisible, panel, false)
+    end
+    log("spectator panel hidden")
+    return true
+end
+
+--- Refresh the panel's labels from the current state.spectator_data().
+-- Called automatically by show_spectator_panel and at the end of
+-- every FactionTurnStart. Pcall-guarded so a Lua error in the
+-- InterfaceFunction() call (the engine's text-binding helper) does
+-- not crash the AI controller.
+function update_spectator_panel_data()
+    if not core or type(core.get_or_create_component) ~= "function" then return end
+    local ok, panel = pcall(core.get_or_create_component, core,
+        SPECTATOR_COMPONENT_NAME, SPECTATOR_TWUI_PATH)
+    if not ok or not panel then return end
+
+    local data = wingman_ai._spectator_data and wingman_ai._spectator_data() or {}
+    local counters = data.counters or {}
+    local log_entries = data.decision_log or {}
+
+    -- Turn label: "Wingman Spectator — turn N"
+    local turn_text = "Wingman Spectator — turn " .. tostring(data.turn_number or 0)
+    if type(panel.FindComponent) == "function" then
+        local ok_t, turn_lbl = pcall(panel.FindComponent, panel, SPECTATOR_TURN_LABEL)
+        if ok_t and turn_lbl and type(turn_lbl.SetState) == "function" then
+            pcall(turn_lbl.SetState, turn_lbl, turn_text)
+        end
+    end
+
+    -- Counters label: "attacked=N garrisoned=N ..."
+    local counter_text = string.format(
+        "attacked=%d garrisoned=%d researched=%d rites=%d diplo=%d built=%d recruit=%d moves=%d healed=%d post_battle=%d heroes=%d",
+        tonumber(counters.attacked) or 0,
+        tonumber(counters.garrisoned) or 0,
+        tonumber(counters.researched) or 0,
+        tonumber(counters.rites) or 0,
+        tonumber(counters.diplomacy) or 0,
+        tonumber(counters.built) or 0,
+        tonumber(counters.recruited) or 0,
+        tonumber(counters.moves) or 0,
+        tonumber(counters.healed) or 0,
+        tonumber(counters.post_battle) or 0,
+        tonumber(counters.hero_actions) or 0)
+    if type(panel.FindComponent) == "function" then
+        local ok_c, c_lbl = pcall(panel.FindComponent, panel, SPECTATOR_COUNTERS_LBL)
+        if ok_c and c_lbl and type(c_lbl.SetState) == "function" then
+            pcall(c_lbl.SetState, c_lbl, counter_text)
+        end
+    end
+
+    -- Decision log label: last 6 entries as a single string.
+    local log_text = "(no actions this turn)"
+    if #log_entries > 0 then
+        local lines = {}
+        local start = math.max(1, #log_entries - 5)  -- last 6
+        for i = start, #log_entries do
+            local e = log_entries[i]
+            lines[#lines + 1] = string.format("%s: %s",
+                tostring(e.kind or "?"), tostring(e.summary or ""))
+        end
+        log_text = table.concat(lines, " | ")
+    end
+    if type(panel.FindComponent) == "function" then
+        local ok_l, l_lbl = pcall(panel.FindComponent, panel, SPECTATOR_LOG_LABEL)
+        if ok_l and l_lbl and type(l_lbl.SetState) == "function" then
+            pcall(l_lbl.SetState, l_lbl, log_text)
+        end
+    end
+end
+
+--- Handle the "Follow Next AI Army" button click. Cycle the cursor
+-- in the spectator army list and center the campaign camera on
+-- the next friendly army. Pcall-guarded.
+function on_follow_next_army(context)
+    debug("on_follow_next_army: fired")
+    local cqi = nil
+    if wingman_ai._spectator_advance_army_cursor then
+        cqi = wingman_ai._spectator_advance_army_cursor()
+    end
+    if not cqi then
+        debug("on_follow_next_army: no armies in cycle list")
+        return true
+    end
+    -- Center the campaign camera on the army. The engine exposes
+    -- cm:scroll_camera_to_character(cqi) in some patches; we
+    -- pcall-guard so missing API is a no-op (the spectator just
+    -- sees the cursor advance, which is itself useful feedback).
+    if cm and type(cm.scroll_camera_to_character) == "function" then
+        pcall(cm.scroll_camera_to_character, cm, cqi)
+    end
+    log("spectator: followed army cqi=" .. tostring(cqi))
+    return true
+end
+
+--- Handle the "Close" button click. Hides the panel.
+function on_close_spectator(context)
+    debug("on_close_spectator: fired")
+    if hide_spectator_panel then pcall(hide_spectator_panel) end
+    return true
+end
+
+-- Idempotent registration of the ComponentLClickUp listener for the
+-- spectator panel's two buttons. Same pattern as
+-- ensure_take_back_listener: idempotent, pcall-guarded, re-binds
+-- on each show (in case of save/load).
+local spectator_listener_registered = false
+function ensure_spectator_listener(panel)
+    if not core or type(core.add_listener) ~= "function" then return end
+    if not panel then return end
+    if spectator_listener_registered then
+        -- Re-bind so a fresh panel (after save/load) is wired.
+        spectator_listener_registered = false
+    end
+    local ok, err = pcall(core.add_listener,
+        core,
+        "wingman_ai_spectator_buttons",
+        "ComponentLClickUp",
+        function(ctx)
+            if not ctx then return false end
+            if type(ctx.string) ~= "function" then return false end
+            local ok_s, sid = pcall(ctx.string, ctx)
+            if not ok_s or type(sid) ~= "string" then return false end
+            if sid == SPECTATOR_FOLLOW_BUTTON then
+                if on_follow_next_army then pcall(on_follow_next_army, ctx) end
+                return true
+            elseif sid == SPECTATOR_CLOSE_BUTTON then
+                if on_close_spectator then pcall(on_close_spectator, ctx) end
+                return true
+            end
+            return false
+        end,
+        false -- not persistent
+    )
+    if not ok then
+        warn("ensure_spectator_listener: " .. tostring(err))
+        return
+    end
+    spectator_listener_registered = true
+    debug("ensure_spectator_listener: registered")
 end
