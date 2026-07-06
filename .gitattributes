@@ -1,0 +1,27 @@
+# Total War: Warhammer III modding repository.
+#
+# The chadvandy/mct_wh3 convention (LF) is used because:
+#   1. The TWW3 engine's VFS is byte-faithful — it doesn't care about EOL
+#   2. The TWW3 modding ecosystem (rpfm, tw_autogen, all known live mods)
+#      uses LF
+#   3. CA's own data/scripts in the data.pack are stored as LF (the engine
+#      normalizes on pack)
+#   4. CRLF on Linux/Mac makes diffs ugly; LF is portable
+# Windows users get CRLF automatically via the engine's pack normalization.
+#
+# The rules below match chadvandy/mct_wh3's .gitattributes.
+
+# Auto-detect text files and normalize to LF on commit/checkin.
+* text=auto
+
+# Pack files are binary (PFH5 format) — never normalize.
+*.pack binary
+
+# Thumbnails are binary.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+
+# Localization TSVs are read as plain text by the engine.
+*.tsv text eol=lf
