@@ -1,12 +1,6 @@
 -- =====================================================================
 -- Wingman -- MCT Settings
 -- =====================================================================
-out("[Wingman DEBUG] wingman_mct.lua file loading") -- D0: file body starts
--- AGGRESSIVE DEBUG: wrap entire body in pcall so any error is caught
--- and printed with the full stack traceback + message. This is
--- temporary diagnostic instrumentation; will be removed once
--- the actual cause of "Wingman not appearing in MCT panel" is found.
-local _wingman_ok, _wingman_err = pcall(function()
 -- Registers all Wingman mod configuration options with the
 -- Mod Configuration Tool (MCT, Workshop ID 2927955021). Provides a
 -- public API (`wingman_mct.*`) for the rest of the mod to read
@@ -37,9 +31,7 @@ local _wingman_ok, _wingman_err = pcall(function()
 ---------------------------------------------------------------------
 -- Bail if MCT isn't loaded; downstream code reads defaults via
 -- wingman_mct.get_default_settings()
-out("[Wingman DEBUG] D1: about to call get_mct()") -- D1
 local mct = get_mct and get_mct() or nil
-out("[Wingman DEBUG] D2: get_mct() returned: " .. tostring(mct)) -- D2
 if not mct then
     out("[Wingman] WARNING: MCT (Mod Configuration Tool) is not loaded. Wingman requires MCT. Subscribe to Workshop item 2927955021.")
     -- Still expose a wingman_mct table so other modules can safely
@@ -213,18 +205,12 @@ end
 -- at registration time, hiding all options from the panel.
 
 local wingman_mod = mct:register_mod("wingman")
-out("[Wingman DEBUG] D3: mct:register_mod returned: " .. tostring(wingman_mod)) -- D3
 wingman_mod:set_workshop_id("wingman_local_id")
-out("[Wingman DEBUG] D4: set_workshop_id OK") -- D4
 wingman_mod:set_version(mct:get_version_number(), mct:get_version())
 wingman_mod:set_main_image("ui/mct/van_mct.png", 300, 300)
-out("[Wingman DEBUG] D5: set_main_image OK") -- D5
 wingman_mod:set_description("Wingman -- Your AI Co-Pilot for TWW3")
-out("[Wingman DEBUG] D6: set_description OK") -- D6
 wingman_mod:set_title("Wingman -- Your AI Co-Pilot")
-out("[Wingman DEBUG] D7: set_title OK") -- D7
 wingman_mod:set_author("Wingman Team")
-out("[Wingman DEBUG] D8: set_author OK") -- D8
 
 
 ---------------------------------------------------------------------
@@ -241,13 +227,9 @@ local SECTION_BATTLE  = "wingman_section_battle"
 local SECTION_RULES   = "wingman_section_rules"
 
 wingman_mod:add_new_section(SECTION_GENERAL, "General")
-out("[Wingman DEBUG] D9: SECTION_GENERAL added") -- D9
 wingman_mod:add_new_section(SECTION_CAMPAIGN, "Campaign Handover")
-out("[Wingman DEBUG] D10: SECTION_CAMPAIGN added") -- D10
 wingman_mod:add_new_section(SECTION_BATTLE,  "Battle Handover")
-out("[Wingman DEBUG] D11: SECTION_BATTLE added") -- D11
 wingman_mod:add_new_section(SECTION_RULES,   "Rules & Limits")
-out("[Wingman DEBUG] D12: all 4 sections added") -- D12
 
 
 ---------------------------------------------------------------------
@@ -623,9 +605,3 @@ _G.wingman_mct = wingman_mct
 -- Log successful registration so users can verify the integration
 -- loaded in their lua_mod_log.txt / script_log_*.txt.
 out("[Wingman] MCT registration complete. 30 settings, 6 sliders, 6 dropdowns, 3 text inputs, 15 checkboxes.")
-
-end) -- END pcall wrapper
-if not _wingman_ok then
-    out("[Wingman FATAL] body threw error: " .. tostring(_wingman_err))
-    out("[Wingman FATAL] stack: " .. debug.traceback("", 2))
-end
