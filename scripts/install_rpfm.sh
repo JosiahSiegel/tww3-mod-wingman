@@ -58,6 +58,52 @@ if ! command -v unzstd >/dev/null 2>&1; then
     fi
 fi
 
+# Install RPFM's runtime dependencies. RPFM (built with Qt5 + KDE Frameworks 5 +
+# libgit2) requires system libraries that aren't on a stock ubuntu-latest runner.
+# The Arch PKGBUILD lists the canonical set; the Ubuntu equivalents below cover
+# the headless `rpfm_cli` binary. Tested by running rpfm_cli --version after
+# install — it must complete without a "library not found" error.
+#
+# Refs:
+#   https://github.com/Frodo45127/rpfm/blob/v4.5.4/install/arch/rpfm-bin/PKGBUILD
+#   https://github.com/Frodo45127/rpfm/blob/v4.5.4/Cargo.toml (crate deps)
+#
+# This list is deliberately broad — better to install one package too many
+# than to spend another CI cycle chasing the next "library not found" error.
+# All packages are standard Ubuntu repos; total install time ~30-60s on a warm
+# runner (cached apt metadata + pre-warmed package cache).
+echo "Installing RPFM runtime dependencies via apt-get..."
+if command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update -qq
+    sudo apt-get install -y -qq --no-install-recommends \
+        libgit2-1.9 \
+        libqt5core5t64 \
+        libqt5gui5t64 \
+        libqt5network5t64 \
+        libqt5widgets5t64 \
+        libqt5xml5t64 \
+        libkf5archive5 \
+        libkf5completion5 \
+        libkf5configcore5 \
+        libkf5configgui5 \
+        libkf5configwidgets5 \
+        libkf5coreaddons5 \
+        libkf5guiaddons5 \
+        libkf5i18n5 \
+        libkf5iconthemes5 \
+        libkf5itemviews5 \
+        libkf5kiocore5 \
+        libkf5texteditor5 \
+        libkf5widgetsaddons5 \
+        libkf5xmlgui5 \
+        xz-utils \
+        p7zip-full \
+        || {
+            echo "WARNING: some apt packages failed to install. rpfm_cli may fail" >&2
+            echo "         to start with a 'library not found' error. See logs." >&2
+        }
+fi
+
 mkdir -p "${TOOLS_DIR}"
 
 # Download to a tmpdir (cleaned up below) to keep the repo directory tidy.
