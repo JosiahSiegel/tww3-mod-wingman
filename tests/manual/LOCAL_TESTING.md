@@ -11,12 +11,18 @@ End-to-end guide for running Wingman on a development machine **before** publish
 If you've already built and installed once and just want to re-verify a code change:
 
 ```bash
-# 1. Rebuild the pack from repo changes (RPFM GUI: MyMod → Import → PackFile → Install)
-# 2. Tail the script log while you play
+# 1. Rebuild the pack
+python scripts/build_pack.py
+
+# 2. Copy into TWW3 (PowerShell)
+Copy-Item "dist\!wingman.pack" "C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III\data\!wingman.pack" -Force
+
+# 3. Tail the script log while you play
 tail -f "C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III\script_log_*.txt"
-# 3. Launch TWW3 (original launcher, NOT EA Mod Manager)
-# 4. Mod Manager: tick MCT + Wingman → Play
-# 5. New IE campaign, Reikland → verify the [Wingman] init line appears in the log
+
+# 4. Launch TWW3 (original launcher, NOT EA Mod Manager)
+# 5. Mod Manager: tick MCT + Wingman → Play
+# 6. New IE campaign, Reikland → verify the [Wingman] init line appears in the log
 ```
 
 If the init line appears, the mod is at least bootable. Run the full scenarios for deeper verification.
@@ -30,39 +36,24 @@ If the init line appears, the mod is at least bootable. Run the full scenarios f
 | Total War: WARHAMMER III (Steam) | Game to mod | `C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III` |
 | Steam | Launcher + subscription | https://store.steampowered.com/app/1142710 |
 | [Mod Configuration Tool (MCT)](https://steamcommunity.com/sharedfiles/filedetails/?id=2927955021) | Required dependency for Wingman settings UI | Subscribe via Steam Workshop |
-| [Rusted PackFile Manager (RPFM)](https://github.com/Frodo45127/rpfm/releases) v5.0.5+ | Builds `!wingman.pack` from the source repo | https://github.com/Frodo45127/rpfm/releases |
-| (Optional) [TWW3 Assembly Kit BETA](https://store.steampowered.com/app/1880380/) | Speeds up RPFM dependency cache generation | Steam Tools library |
-| Python 3.11+ with Pillow | Regenerate thumbnail if needed | `pip install Pillow` |
+| Python 3.6+ | Runs `scripts/build_pack.py` and `scripts/lupa_smoke.py` | Pre-installed everywhere |
+| Python 3.11+ with Pillow | Optional: regenerate the thumbnail if you change `assets/workshop/build_thumbnail.py` | `pip install Pillow` |
+
+That's it. **No RPFM, no Assembly Kit, no 100+ MB binary downloads, no Qt/KDE runtime libraries.** The packer is ~150 lines of pure Python implementing the [PFH5 format spec](https://github.com/TotalWar-Modding/docs/blob/master/pack%20file%20format.md) directly.
 
 ---
 
-## Step 1: Configure RPFM (one-time, ~5 minutes)
+## Step 1: Build the pack (< 1 second)
 
-1. Install RPFM from the releases page. Extract to a writable location (e.g., `D:\Tools\rpfm\`).
-2. Launch RPFM.
-3. `PackFile → Preferences → Settings`:
-   - **Game Path**: `C:\Program Files (x86)\Steam\steamapps\common\Total War Warhammer III`
-   - **MyMod folder**: `D:\repos\tww3-mod-wingman` (this repo's root)
-   - **Selected Game**: **Warhammer 3**
-4. `Special Stuff → Warhammer 3 → Generate Dependencies Cache` (one-time, ~2 minutes).
-   - You only need to re-run this after a TWW3 game patch.
-
-> **Why a separate tool?** TWW3 loads mods from `.pack` files (CA's proprietary PFH5 archive). You cannot just point the game at the `.lua` files in the repo — RPFM packs them into the format the game reads.
-
----
-
-## Step 2: Build the pack (~2 minutes)
-
-Every code change requires a rebuild.
+Every code change requires a rebuild — but the rebuild is instant:
 
 1. **Edit source** in this repo (any `.lua`, `.tsv`, `.png`).
-2. **In RPFM**: `MyMod → Import` — pulls changes from the repo into the open pack.
-3. **In RPFM**: `PackFile → Install` — copies `!wingman.pack` to `<TWW3>/data/`.
-4. **Verify install**: the file `<TWW3>/data/!wingman.pack` should exist with a recent timestamp.
+2. **Run**: `python scripts/build_pack.py`
+3. **Verify output**: `dist/!wingman.pack` (~200 KB) and `dist/!wingman.png` are written. The script also validates the PFH5 magic (`50464835`) on the output.
 
-**Iterative dev loop time**: ~30 seconds from edit to in-game-testable, dominated by the RPFM Import/Install dialog.
+**Iterative dev loop time**: < 1 second from edit to fresh pack, dominated by Python startup + file reads.
 
-> **First-time build**: ~5 minutes (RPFM also generates its dependency cache during this).
+> **Why no RPFM?** RPFM is a great general-purpose tool for TWW3 modding — schema validation, animation conversion, DB table editors, etc. But for a script-only mod like Wingman, all of that is dead weight. The PFH5 format is a ~10 KB spec and our use case is file concatenation. A pure-Python packer is faster, deterministic, has zero apt dependencies, and the failure mode is "open the file in a hex editor" instead of "install Qt5 libraries on the build server."
 
 ---
 
@@ -191,9 +182,9 @@ The cycle for any code change:
 ┌─────────────────────────────────────────────────────────┐
 │  edit .lua in VS Code (or any editor)                   │
 │  ↓                                                       │
-│  RPFM: MyMod → Import   (~5s)                           │
+│  python scripts/build_pack.py   (< 1s)                  │
 │  ↓                                                       │
-│  RPFM: PackFile → Install   (~5s)                       │
+│  Copy dist\!wingman.pack to <TWW3>\data\   (~1s)        │
 │  ↓                                                       │
 │  (Optional) tail the script log for live feedback        │
 │  ↓                                                       │
@@ -288,16 +279,15 @@ If anything fails, fix the code **before** opening TWW3.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Mod doesn't appear in Mod Manager | `.pack` not in `<TWW3>/data/`, or wrong filename | Re-run `PackFile → Install` in RPFM. Filename must be `!wingman.pack`. |
+| Mod doesn't appear in Mod Manager | `.pack` not in `<TWW3>/data/`, or wrong filename | Re-run `python scripts/build_pack.py` and copy. Filename must be `!wingman.pack`. |
 | Mod ticked but campaign crashes on load | Lua syntax error in one of the files | Open `script_log_*.txt`, find first Lua error line, fix it. |
 | `[Wingman] WARNING: MCT ... not loaded` | MCT not subscribed or not ticked | Subscribe via Steam, tick before Wingman in Mod Manager. |
 | `[Wingman] init` line never appears | `enable_console_logging` flag missing | Create the empty file in `<TWW3>/data/script/`. |
-| Settings panel doesn't show Wingman | `wingman_mct.lua` not in pack | Open the pack in RPFM, verify `script/mct/settings/wingman_mct.lua` is present. |
+| Settings panel doesn't show Wingman | `wingman_mct.lua` not in pack | Run `python -c "import struct; f=open('dist/!wingman.pack','rb'); m=f.read(4); t,_,_,n,_,_,_=struct.unpack('<7I',f.read(28)); print(m,t,n); assert m==b'PFH5' and (t & 0xF)==3 and n==10"` — expect no assertion error. |
 | Wingman auto-ends turns but I want it off | `wingman_enabled` is true | Open MCT → Wingman → untick `wingman_enabled`. |
 | Turn counter increments but my settings didn't change | Periodic break fired (default every 10 turns) | Set `wingman_periodic_break_interval = 0` to disable. |
 | Crash when AI declares war | Diplomacy popup race | Check `wingman_break_on_war_declaration = true` (default). |
-| `Patch X.Y: New table Z required` | TWW3 patched, dependency cache stale | RPFM → `Special Stuff → Warhammer 3 → Generate Dependencies Cache`. |
-| Upload to Workshop spins forever | Steam hiccup | Restart Steam. |
+| `Patch X.Y: New table Z required` | N/A — pure-Python packer has no schema cache. If you see this, it's because the in-game launcher is hitting a TWW3 patch-time validation — unrelated to this mod. |
 | Lua error: `attempt to index a function value (global 'out')` | You wrote `out.something` but TWW3's `out` is callable AND a table. | Use `if out and out.tag and out.tag.fight then` guard pattern. |
 
 ---
@@ -326,7 +316,7 @@ The scenarios doc lists exactly what to capture per scenario. Without evidence, 
 ```
 Wingman 0.1.0-alpha local test — release ____
 
-[ ] Step 1: RPFM configured, dependencies cached
+[ ] Step 1: Python 3.6+ available (`python --version` works)
 [ ] Step 2: !wingman.pack built and installed (timestamp fresh)
 [ ] Step 3: !wingman.png next to .pack; enable_console_logging exists
 [ ] Step 4: Original launcher → Mod Manager → MCT + Wingman ticked → Play
@@ -353,7 +343,7 @@ If all checked → ready for Steam Workshop upload (Hidden first).
 
 - `tests/manual/wingman_scenarios.md` — S1–S10 manual scenarios
 - `tests/manual/QA_REPORT.md` — final architecture compliance audit
-- `pack/BUILD_INSTRUCTIONS.md` — RPFM build + Workshop upload
+- `pack/BUILD_INSTRUCTIONS.md` — pack build (`scripts/build_pack.py`) + Workshop upload
 - `WORKSHOP.md` — Workshop publishing checklist
 - `.omo/plans/wingman-mod.md` — implementation plan with rationale
 

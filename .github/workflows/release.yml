@@ -2,11 +2,19 @@
 # Wingman — TWW3 mod release workflow
 # =============================================================================
 # Push a `v*` tag (e.g. `git tag v0.2.0 && git push --tags`) and this workflow:
-#   1. Builds the pack (lupa smoke gate → RPFM pack)
+#   1. Builds the pack (lupa smoke gate → pure-Python PFH5 packer)
 #   2. Uploads the pack as a 90-day workflow artifact
 #   3. Creates a DRAFT GitHub Release containing the pack + thumbnail
 #   4. Publishes to Steam Workshop (gated by reviewer environment)
 #   5. Publishes the GitHub Release (draft → released) on workshop success
+#
+# Why pure-Python (no RPFM): RPFM is overkill for this mod — script-only,
+# no DB tables or animations to convert, no schema to validate. The PFH5
+# format is ~10 KB of spec and our use case is file concatenation. A pure-
+# Python packer is faster, deterministic, has zero apt dependencies, and
+# works on any GitHub-hosted runner without 100+ MB of binary downloads or
+# RPFM's Qt5/KF5 runtime library mess. See scripts/build_pack.py for the
+# implementation + a link to the format spec.
 #
 # Required manual setup (NOT created by this workflow — owner must configure):
 #
@@ -53,7 +61,6 @@ permissions:
   actions: read
 
 env:
-  RPFM_VERSION: '4.5.4'
   STEAM_APPID: '1142710'             # Total War: WARHAMMER III
   PACK_NAME: '!wingman.pack'
   THUMB_NAME: '!wingman.png'
@@ -87,32 +94,20 @@ jobs:
       - name: Install lupa
         run: pip install lupa
 
-      # Pre-build gate — run BEFORE the expensive pack step so syntax errors
-      # fail the run in seconds, not after a multi-minute RPFM download.
+      # Pre-build gate — run BEFORE the pack step so syntax errors
+      # fail the run in seconds. (No RPFM to download — pure-Python packer.)
       - name: Run lupa smoke test (pre-build gate)
         run: python scripts/lupa_smoke.py
 
-      # Cache key is version-pinned: a future RPFM v4.5.5 release will
-      # automatically invalidate this key (different rpfm-v4.5.5-* prefix).
-      - name: Cache RPFM
-        id: cache-rpfm
-        uses: actions/cache@v4
-        with:
-          path: tools/rpfm
-          key: rpfm-v${{ env.RPFM_VERSION }}-linux-x86_64
-          restore-keys: |
-            rpfm-v${{ env.RPFM_VERSION }}-linux-x86_64
-
-      - name: Install RPFM CLI
-        run: bash scripts/install_rpfm.sh
-        env:
-          GITHUB_WORKSPACE: ${{ github.workspace }}
-
-      - name: Build pack
+      # Build the pack with a pure-Python PFH5 writer. Zero external deps,
+      # no apt installs, no 122 MB RPFM download. The format is documented at
+      # https://github.com/TotalWar-Modding/docs/blob/master/pack%20file%20format.md
+      # and we only ship Lua scripts + a .loc.tsv — no DB tables or animations
+      # that need conversion.
+      - name: Build pack (pure-Python PFH5)
         id: build
-        run: bash scripts/build_pack.sh
+        run: python scripts/build_pack.py
         env:
-          GITHUB_WORKSPACE: ${{ github.workspace }}
           REPO_ROOT: ${{ github.workspace }}
 
       - name: Inspect dist/

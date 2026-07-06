@@ -26,8 +26,8 @@ Let an AI co-pilot take the stick on your campaign and battles. Set rules, turn 
 
 If you want to build the mod from source and test changes locally (contributors, testers):
 
-- **[`tests/manual/LOCAL_TESTING.md`](tests/manual/LOCAL_TESTING.md)** — end-to-end local testing guide: RPFM build, install, script-logging setup, iterative dev loop, lupa pre-launch smoke test (`scripts/lupa_smoke.py`), common pitfalls, evidence capture protocol.
-- **[`pack/BUILD_INSTRUCTIONS.md`](pack/BUILD_INSTRUCTIONS.md)** — RPFM build steps (`scripts/build_pack.sh`, `scripts/install_rpfm.sh`) + Workshop upload flow.
+- **[`tests/manual/LOCAL_TESTING.md`](tests/manual/LOCAL_TESTING.md)** — end-to-end local testing guide: pack build (pure-Python), install, script-logging setup, iterative dev loop, lupa pre-launch smoke test (`scripts/lupa_smoke.py`), common pitfalls, evidence capture protocol.
+- **[`pack/BUILD_INSTRUCTIONS.md`](pack/BUILD_INSTRUCTIONS.md)** — pack build steps (`scripts/build_pack.py`) + Workshop upload flow.
 - **[`tests/manual/wingman_scenarios.md`](tests/manual/wingman_scenarios.md)** — 10 manual test scenarios (S1–S10) with binary pass/fail and evidence paths.
 - **[`.github/workflows/release.yml`](.github/workflows/release.yml)** — automated CI build + Steam Workshop publish workflow.
 
@@ -38,8 +38,7 @@ The repo includes a `.github/workflows/release.yml` workflow that automates buil
 **What it does** (on `v*` tag push, or manual trigger):
 
 1. **Smoke test** — runs `scripts/lupa_smoke.py` to verify all 9 Lua modules load together under stubbed TWW3 engine globals. Catches syntax errors before the pack build.
-2. **RPFM install** — downloads Rusted PackFile Manager CLI v4.5.4 (Linux binary) and caches it under `tools/rpfm/` keyed on version.
-3. **Pack build** — runs `scripts/build_pack.sh` to invoke RPFM CLI and produce `dist/!wingman.pack` (with PFH5 magic validation) plus copy `dist/!wingman.png`.
+2. **Pack build** — runs `scripts/build_pack.py` (pure-Python PFH5 writer, zero deps) to produce `dist/!wingman.pack` with PFH5 magic validation, plus copies `dist/!wingman.png`. No RPFM, no apt installs, no large binary downloads.
 4. **Draft GitHub Release** — uploads the pack + thumbnail as a draft release (so the durable artifact exists before any external publish).
 5. **Steam Workshop publish** — gated by a `steam-workshop` GitHub Environment (required reviewer). Runs `weilbyte/steam-workshop-upload@v1` against appid `1142710`.
 

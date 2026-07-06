@@ -2,7 +2,7 @@
 
 ## Required Artifacts
 
-- [ ] `!wingman.pack` (built via RPFM MyMod → Import → Pack)
+- [ ] `!wingman.pack` (built via `python scripts/build_pack.py` — see `pack/BUILD_INSTRUCTIONS.md`)
 - [ ] `!wingman.png` (thumbnail, **256×256 PNG, under 1 MB strict**, filename must match pack base)
 - [ ] README content (used for description)
 - [ ] CHANGELOG entry
@@ -18,8 +18,8 @@
 
 ## Upload Steps
 
-1. Build pack locally: `RPFM → MyMod → Import → PackFile → Install`
-2. Place `!wingman.png` next to `!wingman.pack` in TWW3 `data\` folder
+1. Build pack locally: `python scripts/build_pack.py` (or follow `pack/BUILD_INSTRUCTIONS.md` for the full pipeline)
+2. Place `dist\!wingman.pack` and `dist\!wingman.png` in TWW3 `data\` folder (filename MUST match)
 3. Launch **original Total War launcher** (NOT the new EA Mod Manager — it does not support uploads yet)
 4. Open **Mod Manager**
 5. Right-click the Wingman mod → **Upload**
