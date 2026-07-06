@@ -62,9 +62,18 @@ def find_source_files(repo_root: Path) -> list[tuple[str, Path]]:
         for disk_path in sorted(root_dir.rglob("*")):
             if not disk_path.is_file():
                 continue
-            # In-pack path is repo-relative, with forward slashes (TWW3
-            # is Windows-native but reads pack paths with forward slashes).
-            rel = disk_path.relative_to(repo_root).as_posix()
+            # In-pack path is repo-relative, with BACKSLASH separators.
+            # Verified against every working pack in the user's TWW3
+            # install (groovy_mct 142/142 backslash, sm0_recruit_defeated
+            # 30/30 backslash, etc.). My pack was using forward slashes
+            # and the launcher was silently finding files via the VFS
+            # fallback, but MCT's load_mods() iterates /script/mct/settings/
+            # with forward slashes and only registers mods whose pack
+            # index path matches the canonical (backslash) form. The
+            # diagnostic log showed `Registering mod X` for every other
+            # MCT mod but never for wingman -- because my pack's
+            # file-index paths didn't match the lookup key.
+            rel = str(disk_path.relative_to(repo_root)).replace("/", "\\")
             files.append((rel, disk_path))
     return files
 
