@@ -40,8 +40,10 @@ When you're short on time, run these four in order. They cover boot, core orches
 6. **S11** — AI Controller. Confirms Wingman actively moves your armies (not just hands the turn back).
 7. **S11b** — Active AI: attack, research, rites (W6). Confirms the highest-skill AI takes full control.
 8. **S11c** — Defensive garrison (W6). Confirms defensive aggression garrisoned idle defenders.
+9. **S11d** — Autopilot mode (W7). Confirms full UI lock + CAI personality swap + scripted orders + take-back button + ESC take-back.
+10. **S11e** — Advisory mode (W7). Confirms the 3-button dilemma at FactionTurnStart gates the W6 step dispatch.
 
-If S7, S1, S6, S3, S10, S11, S11b, and S11c all pass, the mod is bootable and the core paths work. Defer S2, S4, S5, S8, S9 to a deeper pass before each release.
+If S7, S1, S6, S3, S10, S11, S11b, S11c, S11d, and S11e all pass, the mod is bootable and the core paths work. Defer S2, S4, S5, S8, S9 to a deeper pass before each release.
 
 ---
 
@@ -675,6 +677,159 @@ set to defensive.
 
 ---
 
+## S11d — Autopilot mode: full UI lock + CAI personality swap + scripted orders (W7)
+
+**Objective**: Verify that engaging Autopilot mode locks the player out
+of the campaign UI, installs the user-selected CAI personality on the
+player faction, and shows the "Wingman in Control" banner with a
+take-back button. Releasing Autopilot reverses all locks and hides the
+banner.
+
+**Setup**:
+- Continue from S11c (or start a fresh IE campaign, Reikland).
+- In MCT → Wingman settings:
+  - `wingman_ai_enabled` = **true**
+  - `wingman_ai_aggression` = **balanced** (default)
+  - `wingman_ai_mode` = **autopilot** (NEW in W7)
+  - `wingman_ai_autopilot_personality` = any value from the dropdown
+    (default: `wh3_combi_legendary_default`)
+  - `wingman_ai_takeback_hotkey` = **esc** (default)
+  - All other AI settings: defaults.
+- Script logging enabled.
+
+**Steps**:
+1. End the player's turn once. Wingman auto-ends it.
+2. On the next turn, when prompted by MCT to apply the W7 mode change,
+   click **Apply** (or restart the campaign after changing the setting
+   — the autopilot mode is read at `engage_autopilot()` time, not at
+   `FactionTurnStart`).
+3. Open the MCT panel, find the "Wingman in Control" banner button
+   (or trigger `wingman_ai.engage_autopilot()` from the in-game
+   console for faster testing).
+4. Verify the campaign UI is fully locked: clicking on settlements,
+   armies, or the end-turn button has no effect. The end-turn button
+   is greyed out. The campaign camera and tooltip still work (we only
+   steal INPUT, not the camera).
+5. Let the AI play 3 turns.
+6. Inspect the most recent `script_log_*.txt`.
+7. Click the "Take Back Control" button on the banner. Verify
+   Autopilot releases — the player regains UI control.
+
+**Pass condition**:
+- Log shows `engaged: personality=...` on autopilot start.
+- Log shows `banner shown` after engage.
+- Log shows `steal_user_input` and `disable_end_turn` in the call log
+  (both invoked).
+- Log shows `force_change_cai_faction_personality` with the player
+  faction key and the configured personality.
+- Log shows `released` on take-back click.
+- Visual: the "Wingman in Control — click to take back" banner is
+  visible while autopilot is active, hidden after release.
+- The end-turn button is greyed out while autopilot is active,
+  functional after release.
+- The player's armies continue to move/attack during the 3 autopilot
+  turns (W6 step dispatch is still running).
+
+**Evidence**:
+- `evidence/s11d_autopilot_engage_log.log` — log from the engage call.
+- `evidence/s11d_autopilot_banner.png` — screenshot showing the
+  banner while autopilot is active.
+- `evidence/s11d_autopilot_locked_endturn.png` — screenshot showing
+  the greyed-out end-turn button.
+- `evidence/s11d_autopilot_3turns_log.log` — log showing 3 turns of
+  AI activity while locked out.
+- `evidence/s11d_autopilot_release_log.log` — log from the release
+  call (take-back button click).
+
+**Fail signals**:
+- `engaged:` line missing → `engage_autopilot` is not being called
+  (check the MCT autopilot mode setting + the W7 listener wiring).
+- `steal_user_input` not in the log → the player can still click
+  around; the lock is not applied.
+- `force_change_cai_faction_personality` not in the log → the
+  personality swap did not happen; check the
+  `wingman_ai_autopilot_personality` setting.
+- `released` line missing on take-back click → the take-back button
+  listener is not wired (check `ensure_take_back_listener`).
+- The end-turn button is NOT greyed out → the 3-call lock path
+  (`uim:override + cm:override_ui + cm:disable_end_turn`) is not
+  firing on all three.
+
+**ESC take-back variant**:
+- With autopilot engaged, hold ESC for 3 seconds. Verify the
+  autopilot releases (same `released` log line, same banner hidden
+  state). This path uses `cm:steal_escape_key_with_callback` which
+  must be wired in `engage_autopilot` (see `ensure_esc_take_back_registered`).
+- If ESC take-back fails: `ensure_esc_take_back_registered` was not
+  called, or the `on_esc_take_back` callback doesn't call
+  `release_autopilot`.
+
+---
+
+## S11e — Advisory mode: per-turn 3-button dilemma (W7)
+
+**Objective**: Verify that engaging Advisory mode fires a 3-button
+dilemma (Apply / Skip / Always Apply) at the start of each
+FactionTurnStart, and that the player's choice correctly gates
+whether the W6 step dispatch runs.
+
+**Setup**:
+- Continue from S11d (or start a fresh campaign).
+- In MCT → Wingman settings:
+  - `wingman_ai_mode` = **advisory** (NEW in W7)
+  - All other AI settings: defaults.
+- Script logging enabled.
+
+**Steps**:
+1. End the player's turn once. Wingman auto-ends it.
+2. On the next turn, when the FactionTurnStart fires for the player
+   faction, a 3-button dilemma must appear: "Apply", "Skip",
+   "Always Apply".
+3. Click **Skip**. Verify the W6 step dispatch does NOT run for
+   that turn (no `AI run: turn=...` log line for the turn, no
+   `move_to` / `attack` log lines, no `AI done:` log line).
+4. Click **Apply** on a subsequent turn. Verify the W6 step
+   dispatch runs (full log lines).
+5. Click **Always Apply** on a third turn. Verify it runs AND
+   subsequent turns auto-apply without showing the dilemma.
+6. Inspect the most recent `script_log_*.txt`.
+
+**Pass condition**:
+- Log shows `advisory dilemma fired: key=wingman_advisory_default`
+  on each FactionTurnStart while advisory is on (and not in
+  `advisory_auto_accept` mode).
+- Log shows `advisory: player chose SKIP` when Skip is clicked.
+- Log shows `AI run: turn=...` is ABSENT after Skip is chosen.
+- Log shows `advisory: player chose APPLY` when Apply is clicked.
+- Log shows `advisory: player chose ALWAYS APPLY` when Always is
+  clicked.
+- After Always Apply, the dilemma does NOT appear on subsequent
+  turns (the `advisory dilemma fired` log line is absent).
+- The 3-button dilemma has 3 distinct buttons with the expected
+  labels (Apply / Skip / Always Apply).
+
+**Evidence**:
+- `evidence/s11e_advisory_apply_dilemma.png` — screenshot of the
+  3-button dilemma.
+- `evidence/s11e_advisory_skip_log.log` — log from a Skip click
+  (note the absence of `AI run` for that turn).
+- `evidence/s11e_advisory_always_apply_log.log` — log showing the
+  "Always Apply" choice and the subsequent auto-apply behavior.
+
+**Fail signals**:
+- `advisory dilemma fired` not in the log → the dilemma wiring in
+  `run_for_local_faction` is broken (check `fire_advisory_dilemma`).
+- The 3-button prompt does not appear → `cm:launch_custom_dilemma_from_builder`
+  is not being called; check the W7 advisory block.
+- Skip click does NOT skip the W6 dispatch → the
+  `state.skip_remaining_steps` flag is not being checked at the
+  top of `run_for_local_faction`.
+- Always Apply does NOT persist → the
+  `state.advisory_auto_accept` flag is not being set in
+  `on_dilemma_choice_made`.
+
+---
+
 ## Evidence checklist
 
 Use this table to track which artifacts you have at the end of a test pass. Mark each cell ✓/✗ and link to the file.
@@ -694,10 +849,12 @@ Use this table to track which artifacts you have at the end of a test pass. Mark
 | S11 AI controller | | | | | | |
 | S11b active AI (attack/research) | | | | | | |
 | S11c defensive garrison | | | | | | |
+| S11d Autopilot mode (W7) | | | | | | |
+| S11e Advisory mode (W7) | | | | | | |
 
 A release is **READY** for Steam Workshop upload only when:
 
-- All 10 scenarios have binary pass/fail evidence.
+- All 12 scenarios have binary pass/fail evidence.
 - All evidence files exist in `tests/manual/evidence/`.
 - No scenarios have open "Fail signals" — every failure must be either fixed or marked "known limitation" in `CHANGELOG.md`.
 
