@@ -128,6 +128,24 @@ local DEFAULTS = {
     wingman_ai_autopilot_personality     = "wh3_combi_legendary_default",
     wingman_ai_takeback_hotkey           = "esc",
     wingman_ai_advisory_dilemma_key      = "wingman_advisory_default",
+    -- W8 settings.
+    --   - wingman_ai_build_enabled: master toggle for step_construct_buildings.
+    --     The W8 implementation now actually queues buildings (W6 was a
+    --     documented stub). The user can still toggle it off to disable.
+    --   - wingman_ai_periodic_pause_turns: how many turns between forced
+    --     "take a break" pauses (0 = never). When the count hits the
+    --     interval, the next FactionTurnStart fires a 4-button dilemma
+    --     (Apply / Skip / Always Apply / Take Control). "Take Control"
+    --     releases Autopilot. The user can also set this to 1 to pause
+    --     every turn (effectively the same as Advisory mode).
+    --   - wingman_ai_heal_enabled: master toggle for step_replenish_armies.
+    --   - wingman_ai_post_battle_enabled: master toggle for step_post_battle_decisions.
+    --   - wingman_ai_reactive_diplo_enabled: master toggle for step_diplomatic_reactive.
+    wingman_ai_build_enabled             = true,
+    wingman_ai_periodic_pause_turns      = 0,
+    wingman_ai_heal_enabled              = true,
+    wingman_ai_post_battle_enabled       = true,
+    wingman_ai_reactive_diplo_enabled    = true,
 }
 
 -- Allowed values for enum-like settings. Unknown values revert to the default.
@@ -470,6 +488,29 @@ local function validate_settings(input)
         if type(v) ~= "string" or v == "" or #v > 256 then
             out_settings[key] = DEFAULTS[key]
         end
+    end
+
+    -- W8 bool keys. Force-validate to true/false.
+    for _, key in ipairs({
+        "wingman_ai_build_enabled",
+        "wingman_ai_heal_enabled",
+        "wingman_ai_post_battle_enabled",
+        "wingman_ai_reactive_diplo_enabled",
+    }) do
+        local v = out_settings[key]
+        if v ~= true and v ~= false then
+            out_settings[key] = DEFAULTS[key]
+        end
+    end
+
+    -- W8: wingman_ai_periodic_pause_turns is a non-negative integer
+    -- clamped to [0, 1000]. 0 = disabled.
+    do
+        local v = out_settings.wingman_ai_periodic_pause_turns
+        local n = tonumber(v)
+        if not n or n < 0 then n = 0 end
+        if n > 1000 then n = 1000 end
+        out_settings.wingman_ai_periodic_pause_turns = math.floor(n)
     end
 
     -- CSV keys

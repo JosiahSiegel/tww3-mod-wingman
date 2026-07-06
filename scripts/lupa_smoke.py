@@ -189,6 +189,31 @@ _G.cm = {
     add_loading_game_callback = function(self, cb) return true end,
     add_saving_game_callback  = function(self, cb) return true end,
     callback                  = function(self, cb, delay) return true end,
+    -- W8: cm:pick_random_buildable used by the new step_construct_buildings
+    -- (real W6 was a documented stub). Returns a fake building key so the
+    -- queue call exercises a happy path; tests override this via the
+    -- _G.w8_pick_random_buildable hook.
+    pick_random_buildable = function(self, settlement)
+        if type(_G.w8_pick_random_buildable) == "function" then
+            return _G.w8_pick_random_buildable(settlement)
+        end
+        return "wh3_main_building_growth"
+    end,
+    -- W8: cm:faction_has_pending_diplomacy_with and cm:trigger_diplomacy_response
+    -- for the new step_diplomatic_reactive. Both stubbed; tests override
+    -- via the _G.w8_* hooks.
+    faction_has_pending_diplomacy_with = function(self, from_fk, to_fk)
+        if type(_G.w8_faction_has_pending_diplomacy_with) == "function" then
+            return _G.w8_faction_has_pending_diplomacy_with(from_fk, to_fk)
+        end
+        return false
+    end,
+    trigger_diplomacy_response = function(self, from_fk, to_fk, action)
+        if type(_G.w8_trigger_diplomacy_response) == "function" then
+            return _G.w8_trigger_diplomacy_response(from_fk, to_fk, action)
+        end
+        return true
+    end,
     get_region = function(self, rk)
         return {
             settlement = function(self)

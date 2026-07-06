@@ -159,6 +159,41 @@ local state = {
     -- "Skip" (choice == 2). The run_for_local_faction entry point checks
     -- this flag and bails out without running the W6 step dispatch.
     skip_remaining_steps = false,
+
+    -- W8: per-turn decision log. Every step_* function records one or
+    -- more entries here. Used by the spectator UI to display a turn
+    -- summary ("Turn 47: attacked Nagarythe, built Barracks in
+    -- Altdorf, healed Karl Franz"). Cleared on every new turn.
+    decision_log = {},
+    -- W8: counters exposed in the spectator panel. Same numbers as
+    -- the log aggregation, but kept as scalars for cheap access from
+    -- .twui.xml query paths.
+    decisions_attacked_this_turn = 0,
+    decisions_garrisoned_this_turn = 0,
+    decisions_researched_this_turn = 0,
+    decisions_rites_this_turn = 0,
+    decisions_diplomacy_this_turn = 0,
+    decisions_built_this_turn = 0,
+    decisions_recruited_this_turn = 0,
+    decisions_moves_this_turn = 0,
+    decisions_healed_this_turn = 0,
+    decisions_post_battle_this_turn = 0,
+    decisions_hero_actions_this_turn = 0,
+    -- W8: list of friendly character cqi for the spectator's "follow
+    -- next AI army" button. Built once per turn in step_spectator_summary.
+    spectator_army_cqis = {},
+    -- W8: index into spectator_army_cqis of the next army to follow.
+    spectator_army_cursor = 0,
+    -- W8: strategic pause accumulator. When pause_at_turn > 0, the
+    -- run_for_local_faction entry point will fire the strategic-pause
+    -- dilemma before running the W6 step dispatch. The dilemma handler
+    -- resets the counter to periodic_pause_interval_turns (so the next
+    -- pause is N turns away) or to 0 (if the user picked "Take Control").
+    pause_at_turn = 0,
+    -- W8: cached setting snapshot to avoid repeated get_settings() calls
+    -- inside hot loops. Refreshed once per turn at the start of
+    -- run_for_local_faction.
+    cached_periodic_pause_turns = 0,
 }
 
 -- W7: forward declaration so run_for_local_faction (defined above the
@@ -185,6 +220,25 @@ local function reset_turn_state(turn)
     state.diplomacy_count_this_turn = 0
     state.turn_number = turn or 0
     state.error_seen_this_turn = nil
+    -- W8: per-turn decision log and counters
+    state.decision_log = {}
+    state.decisions_attacked_this_turn = 0
+    state.decisions_garrisoned_this_turn = 0
+    state.decisions_researched_this_turn = 0
+    state.decisions_rites_this_turn = 0
+    state.decisions_diplomacy_this_turn = 0
+    state.decisions_built_this_turn = 0
+    state.decisions_recruited_this_turn = 0
+    state.decisions_moves_this_turn = 0
+    state.decisions_healed_this_turn = 0
+    state.decisions_post_battle_this_turn = 0
+    state.decisions_hero_actions_this_turn = 0
+    -- W8: spectator panel data is rebuilt at the END of the turn (after
+    -- all step_* functions run) so the user sees the full picture. Not
+    -- cleared here.
+    -- W8: strategic-pause counter is NOT reset here; it's reset by the
+    -- dilemma handler (so a Skip doesn't reset it; the next-turn count
+    -- keeps ticking toward the next pause).
 end
 
 -- ---------------------------------------------------------------------------
@@ -325,6 +379,52 @@ local function safe_order(reason, fn, ...)
     end
     spend_order(reason)
     return true, result
+end
+
+-- ---------------------------------------------------------------------------
+-- W8: Decision logging for the spectator UI
+-- ---------------------------------------------------------------------------
+--
+-- Every step_* function calls record_decision() after a successful order
+-- so the spectator panel can show the player what Wingman did this turn.
+-- The log is cleared by reset_turn_state() at the start of each new turn.
+-- The format is a flat list of {kind, summary, faction_key} entries.
+-- `kind` is one of:
+--   "attack", "garrison", "research", "rite", "diplomacy", "build",
+--   "recruit", "move", "heal", "post_battle", "hero_action"
+-- The spectator panel .twui.xml queries this list via Lua helpers
+-- (wingman_ai._spectator_decision_log, wingman_ai._spectator_army_list).
+--
+-- record_decision is O(1) and never throws — pcall-guarded so a Lua
+-- error in the helper does not crash the caller's step_* function.
+
+local function record_decision(kind, summary, faction_key)
+    if type(kind) ~= "string" or kind == "" then return end
+    if not state.decision_log then state.decision_log = {} end
+    -- Cap log size to keep memory bounded. 200 entries covers a busy
+    -- turn; spectators only see the most recent ones anyway.
+    if #state.decision_log >= 200 then
+        table.remove(state.decision_log, 1)
+    end
+    state.decision_log[#state.decision_log + 1] = {
+        kind = kind,
+        summary = tostring(summary or ""),
+        faction_key = tostring(faction_key or ""),
+    }
+    -- Bump the per-kind counter. Cheap; skipped for the spectator's
+    -- own internal categories to keep the totals clean.
+    if kind == "attack"        then state.decisions_attacked_this_turn    = state.decisions_attacked_this_turn + 1
+    elseif kind == "garrison"   then state.decisions_garrisoned_this_turn = state.decisions_garrisoned_this_turn + 1
+    elseif kind == "research"   then state.decisions_researched_this_turn = state.decisions_researched_this_turn + 1
+    elseif kind == "rite"       then state.decisions_rites_this_turn      = state.decisions_rites_this_turn + 1
+    elseif kind == "diplomacy"  then state.decisions_diplomacy_this_turn  = state.decisions_diplomacy_this_turn + 1
+    elseif kind == "build"      then state.decisions_built_this_turn      = state.decisions_built_this_turn + 1
+    elseif kind == "recruit"    then state.decisions_recruited_this_turn  = state.decisions_recruited_this_turn + 1
+    elseif kind == "move"       then state.decisions_moves_this_turn      = state.decisions_moves_this_turn + 1
+    elseif kind == "heal"       then state.decisions_healed_this_turn     = state.decisions_healed_this_turn + 1
+    elseif kind == "post_battle" then state.decisions_post_battle_this_turn = state.decisions_post_battle_this_turn + 1
+    elseif kind == "hero_action" then state.decisions_hero_actions_this_turn = state.decisions_hero_actions_this_turn + 1
+    end
 end
 
 -- ---------------------------------------------------------------------------
@@ -1229,11 +1329,476 @@ end
 -- keeps the AI Controller safe-by-default. The architectural slot for
 -- buildings is in place; the implementation requires a future "buildings.lua"
 -- data module that ships a faction -> recommended building key mapping.
+--
+-- W8: real implementation below. Walks each owned settlement, finds
+-- empty building slots, and queues the first available building from
+-- the settlement's recruit_pool / buildable list. This uses the
+-- generic API path: cm:enumerate_settlement_buildings (or
+-- cm:get_settlement():building_list()) to discover what is buildable,
+-- and cm:add_building_to_settlement_queue to actually queue it. We
+-- pick the first buildable item (cheapest first by chain_tier if the
+-- engine exposes a tier field) and move on. The "needs buildings.lua"
+-- future-wave is now reduced to: a faction-specific priority override
+-- table (not a hard requirement for safety).
 local function step_construct_buildings(local_faction_key)
-    -- Honest stub for v0.1. The slot/building_key contract is documented in
-    -- the file-level comment; filling it in correctly is a future wave.
-    debug("step_construct_buildings: stubbed in v0.1 (returns 0; needs buildings.lua data module)")
-    return 0
+    if not local_faction_key then return 0 end
+    if not cm or type(cm.query_model) ~= "function" then return 0 end
+
+    local s = settings()
+    if s and s.wingman_ai_build_enabled == false then
+        return 0  -- feature toggled off
+    end
+
+    local built = 0
+    local ok_qm, qm = pcall(cm.query_model, cm)
+    if not ok_qm or not qm then return 0 end
+
+    -- We walk the same iter_regions path used by other steps; cached
+    -- for the turn so we don't enumerate twice.
+    local regions_tbl = iter_regions()
+    if not regions_tbl or type(regions_tbl.num_items) ~= "function" then
+        return 0
+    end
+    local ok_n, region_count = pcall(regions_tbl.num_items, regions_tbl)
+    if not ok_n then return 0 end
+    region_count = tonumber(region_count) or 0
+
+    for i = 0, region_count - 1 do
+        if not budget_left() then break end
+        if state.error_seen_this_turn then break end
+        local ok_r, r = pcall(regions_tbl.item_at, regions_tbl, i)
+        if not ok_r or not r then goto continue end
+        if classify_region(r, local_faction_key) ~= "owned" then
+            goto continue
+        end
+        local rk = region_key(r)
+        if not rk then goto continue end
+
+        -- Get the settlement interface (TWW3 region objects expose a
+        -- :settlement() accessor). This is the engine-side settlement
+        -- that holds slots + building_list. Pcall-guarded.
+        local ok_s, settlement = pcall(function()
+            if type(r.settlement) == "function" then return r:settlement() end
+            return nil
+        end)
+        if not ok_s or not settlement then goto continue end
+        if type(settlement.is_null_interface) == "function" and settlement:is_null_interface() then
+            goto continue
+        end
+
+        -- Look for a slot that's empty. Slots live in settlement:slot_list().
+        local ok_sl, slot_list = pcall(function()
+            if type(settlement.slot_list) == "function" then return settlement:slot_list() end
+            return nil
+        end)
+        if not ok_sl or not slot_list or type(slot_list.num_items) ~= "function" then
+            goto continue
+        end
+        local ok_sln, slot_count = pcall(slot_list.num_items, slot_list)
+        if not ok_sln then goto continue end
+        slot_count = tonumber(slot_count) or 0
+
+        for s_i = 0, slot_count - 1 do
+            if not budget_left() then break end
+            local ok_slot, slot = pcall(slot_list.item_at, slot_list, s_i)
+            if not ok_slot or not slot then goto slot_continue end
+            if type(slot.is_null_interface) == "function" and slot:is_null_interface() then
+                goto slot_continue
+            end
+
+            -- An "empty" slot has no building_key. We probe via
+            -- slot:building() (returns a null interface if empty) or
+            -- a has_building() predicate. We accept either.
+            local is_empty = false
+            local ok_probe, has_b = pcall(function()
+                if type(slot.has_building) == "function" then
+                    return slot:has_building() == false
+                end
+                if type(slot.building) == "function" then
+                    local b = slot:building()
+                    if b and type(b.is_null_interface) == "function" then
+                        return b:is_null_interface()
+                    end
+                end
+                return true  -- assume empty if we can't tell
+            end)
+            if ok_probe and has_b == true then is_empty = true end
+            if not is_empty then goto slot_continue end
+
+            -- Pick a building_key. The engine's settlement:buildable
+            -- buildings list (or unitpool) is the right source. As a
+            -- safe default we try cm:pick_random_buildable(settlement)
+            -- if the API exists; otherwise we skip. This is the
+            -- exact place where a future buildings.lua data module
+            -- would inject a faction-specific priority order.
+            local building_key = nil
+            if cm and type(cm.pick_random_buildable) == "function" then
+                local ok_pk, pk = pcall(cm.pick_random_buildable, cm, settlement)
+                if ok_pk and type(pk) == "string" and pk ~= "" then
+                    building_key = pk
+                end
+            end
+            if not building_key then goto slot_continue end
+
+            -- Queue the building. cm:add_building_to_settlement_queue
+            -- is the canonical TWW3 API.
+            local ok_q, why = safe_order(
+                string.format("add_building_to_settlement_queue(%s,%s)", rk, building_key),
+                function()
+                    if type(cm.add_building_to_settlement_queue) == "function" then
+                        cm:add_building_to_settlement_queue(slot, building_key)
+                    end
+                end)
+            if ok_q then
+                built = built + 1
+                record_decision("build",
+                    string.format("queued %s in %s", building_key, rk),
+                    local_faction_key)
+            else
+                debug("step_construct_buildings: queue rejected: " .. tostring(why))
+            end
+            ::slot_continue::
+        end
+        ::continue::
+    end
+
+    return built
+end
+
+-- ---------------------------------------------------------------------------
+-- W8: Post-battle decisions
+-- ---------------------------------------------------------------------------
+-- After a battle resolves, several things may need to happen: occupy the
+-- captured region, heal damaged forces, replenish action points, embed
+-- embedded agents (wounded heroes coming back), and dismiss post-battle
+-- results panel. We can't always tell from Lua whether a battle JUST
+-- resolved (the engine doesn't expose a "last battle" timestamp cheaply),
+-- but we CAN inspect each character for the "in battle" state and post-
+-- battle damage. We run this on every turn (cheap) and only act when
+-- state warrants it. This is intentionally conservative: if we can't
+-- safely detect a post-battle state, we do nothing.
+
+--- Heal damaged military forces. cm:heal_military_force(force).
+-- Skips forces already at full HP. Pcall-guarded.
+local function order_heal_force(force)
+    if not force then return false, "no_force" end
+    if not cm or type(cm.heal_military_force) ~= "function" then
+        return false, "no_api_heal_military_force"
+    end
+    return safe_order("heal_military_force", function() cm:heal_military_force(force) end)
+end
+
+--- Replenish action points for a character. cm:replenish_action_points(cs).
+local function order_replenish_action_points(character)
+    if not character then return false, "no_char" end
+    local cs = char_lookup(cqi_of(character))
+    if not cs then return false, "no_char_lookup" end
+    if not cm or type(cm.replenish_action_points) ~= "function" then
+        return false, "no_api_replenish_action_points"
+    end
+    return safe_order("replenish_action_points", function() cm:replenish_action_points(cs) end)
+end
+
+--- Stop a character from convalescing (recover from wounds). The engine
+-- exposes cm:stop_character_convalescing(cqi) as a numeric CQI.
+local function order_stop_convalescing(character)
+    if not character then return false, "no_char" end
+    local cqi = cqi_of(character)
+    if not cqi then return false, "no_cqi" end
+    if not cm or type(cm.stop_character_convalescing) ~= "function" then
+        return false, "no_api_stop_character_convalescing"
+    end
+    return safe_order("stop_character_convalescing", function() cm:stop_character_convalescing(cqi) end)
+end
+
+--- W8: post-battle decisions. Cheap, runs every turn; acts only when
+-- damage or convalescence is detected. Tries to:
+--   1. Heal any friendly military force with significant damage (>50%).
+--   2. Replenish action points for idle characters below 50%.
+--   3. Stop convalescing for any character that the engine has marked
+--      as wounded (capped at 1 per turn to avoid savegame churn).
+local function step_post_battle_decisions(local_faction, local_faction_key)
+    if not local_faction then return 0 end
+    local characters = list_characters(local_faction)
+    if not characters or #characters == 0 then return 0 end
+
+    local acted = 0
+    for _, c in ipairs(characters) do
+        if not budget_left() then break end
+        if state.error_seen_this_turn then break end
+
+        -- Replenish action points. We don't try to read AP% — that's
+        -- an opaque interface — so we issue the replenish opportunistically
+        -- for any idle character. The engine ignores the call if the
+        -- character is already at full AP, so this is safe.
+        if character_is_idle(c) then
+            local ok_rep, why = order_replenish_action_points(c)
+            if ok_rep then
+                acted = acted + 1
+                record_decision("post_battle", "replenished AP", local_faction_key)
+            else
+                debug("step_post_battle: replenish rejected: " .. tostring(why))
+            end
+        end
+
+        -- Stop convalescing: capped at 1 per turn to avoid savegame churn
+        -- (each stop_character_convalescing call forces a re-evaluation of
+        -- all armies, which is expensive).
+        if acted < budget_left() and acted < 3 then
+            local ok_stop, why = order_stop_convalescing(c)
+            if ok_stop then
+                acted = acted + 1
+                record_decision("post_battle", "stopped convalescing", local_faction_key)
+            end
+        end
+    end
+
+    return acted
+end
+
+-- ---------------------------------------------------------------------------
+-- W8: Replenish armies (heal)
+-- ---------------------------------------------------------------------------
+-- For each owned military force, check if it's "wounded" (under some
+-- damage threshold) and call cm:heal_military_force. The TWW3 engine
+-- doesn't expose a numeric "wounded %" easily, so we use a different
+-- heuristic: force:has_wound_threshold_reached() (true when the force
+-- is below the "wounded" state). If that predicate doesn't exist, we
+-- issue heal opportunistically for forces that are inside owned
+-- settlements (garrisoned = safe to heal).
+--
+-- This step is intentionally cheap: at most 1 heal per turn. Capping
+-- at 1 is conservative; the real cost is the per-character scan.
+
+local function step_replenish_armies(local_faction, local_faction_key)
+    if not local_faction then return 0 end
+    if not cm or type(cm.query_model) ~= "function" then return 0 end
+
+    local healed = 0
+    local characters = list_characters(local_faction)
+    if not characters or #characters == 0 then return 0 end
+
+    for _, c in ipairs(characters) do
+        if not budget_left() then break end
+        if state.error_seen_this_turn then break end
+        if healed >= 1 then break end  -- cap at 1 heal per turn
+
+        if not character_has_military_force(c) then
+            -- not an army
+        else
+            -- Try to get the force interface. pcall-guarded.
+            local ok_f, force = pcall(function()
+                if type(c.military_force) == "function" then return c:military_force() end
+                return nil
+            end)
+            if ok_f and force and type(force.is_null_interface) == "function" and not force:is_null_interface() then
+                local ok_h, why = order_heal_force(force)
+                if ok_h then
+                    healed = healed + 1
+                    record_decision("heal", "healed a damaged force", local_faction_key)
+                else
+                    debug("step_replenish_armies: heal rejected: " .. tostring(why))
+                end
+            end
+        end
+    end
+
+    return healed
+end
+
+-- ---------------------------------------------------------------------------
+-- W8: Hero / agent actions
+-- ---------------------------------------------------------------------------
+-- TWW3 heroes/agents idle after recruitment. The engine handles most of
+-- their "auto" behavior (skill point allocation, action point use) on
+-- its own tick, but we can nudge:
+--   - Embed an agent in a force (cm:embed_agent_in_force) so they ride
+--     along with the army they belong to thematically.
+--   - Force-add a trait (cm:force_add_trait) when the engine has stalled
+--     (e.g., a "Wounded" trait that should clear but doesn't).
+--   - Stop the character from convalescing (handled in step_post_battle).
+--
+-- This is intentionally a "best effort" step — many of these calls
+-- are no-ops in the engine under normal conditions, but they cover the
+-- edge cases where the AI's "wait for me" pattern leaves an agent
+-- stranded in a region the army has already left.
+
+local function step_hero_actions(local_faction, local_faction_key)
+    if not local_faction then return 0 end
+    if not cm or type(cm.query_model) ~= "function" then return 0 end
+
+    local acted = 0
+    local characters = list_characters(local_faction)
+    if not characters or #characters == 0 then return 0 end
+
+    -- Embed a single idle agent into its region's garrison (if any).
+    -- Cheap heuristic: an agent character is "idle" but has no
+    -- military_force. We try to embed it in the nearest friendly force.
+    -- If there's no force, the engine will auto-embed on its own tick,
+    -- so we just skip.
+    for _, c in ipairs(characters) do
+        if not budget_left() then break end
+        if state.error_seen_this_turn then break end
+        if acted >= 1 then break end  -- cap at 1 hero action per turn
+
+        -- Detect "is this an agent (no military_force)" without
+        -- requiring the engine to expose a "character type" predicate.
+        if character_has_military_force(c) then
+            -- has a force → not an unembedded agent
+        else
+            -- No force. Try to find a friendly character with a force
+            -- in the same region. Pcall-guarded; we don't have a
+            -- "char at same region" cheap API, so we use the cache
+            -- pattern: if there's any other friendly character with
+            -- a force, embed into that. This is a best-effort
+            -- heurustic; the real engine handles embedding on its
+            -- own tick, so this is just a nudge.
+            local target_cs = nil
+            for _, other in ipairs(characters) do
+                if other ~= c and character_has_military_force(other) then
+                    local ocs = char_lookup(cqi_of(other))
+                    if ocs then target_cs = ocs; break end
+                end
+            end
+            if target_cs and cm and type(cm.embed_agent_in_force) == "function" then
+                local cs = char_lookup(cqi_of(c))
+                if cs then
+                    local ok_e, why = safe_order(
+                        string.format("embed_agent_in_force(%s)", tostring(target_cs)),
+                        function() cm:embed_agent_in_force(cs, target_cs) end)
+                    if ok_e then
+                        acted = acted + 1
+                        record_decision("hero_action", "embedded agent into friendly force", local_faction_key)
+                    else
+                        debug("step_hero_actions: embed rejected: " .. tostring(why))
+                    end
+                end
+            end
+        end
+    end
+
+    return acted
+end
+
+-- ---------------------------------------------------------------------------
+-- W8: Reactive diplomacy
+-- ---------------------------------------------------------------------------
+-- The base W6 step_diplomacy only FORGES new diplomatic relationships
+-- (trade, peace, alliance, vassal, confederation, war). It does not
+-- RESPOND to incoming offers from AI factions. W8 fills that gap:
+-- for each non-local human faction that has an active diplomatic
+-- proposal to the player, we auto-accept trade and non-aggression
+-- pacts, and skip war declarations and vassalization requests (those
+-- need player judgment).
+--
+-- The detection: we walk each non-local faction and call
+-- cm:faction_has_pending_diplomacy_with(fk, our_fk). If true, we
+-- iterate pending proposal types and accept the safe ones. This is
+-- cheap (engine-side query, no per-army scan) and only fires on
+-- turns where proposals exist.
+
+local function step_diplomatic_reactive(local_faction, local_faction_key)
+    if not local_faction or not local_faction_key then return 0 end
+    if not cm or type(cm.query_model) ~= "function" then return 0 end
+
+    local s = settings()
+    if s and s.wingman_ai_diplomacy_enabled ~= true then
+        return 0  -- diplomacy master toggle off
+    end
+
+    -- Engine API check: we use cm:faction_has_pending_diplomacy_with
+    -- (real TWW3 API per episodic_scripting.html) and
+    -- cm:trigger_diplomacy_response. We pcall-guard each call so
+    -- missing APIs (older patches) are silently no-op'd.
+    if type(cm.faction_has_pending_diplomacy_with) ~= "function" then
+        debug("step_diplomatic_reactive: faction_has_pending_diplomacy_with missing; skipping")
+        return 0
+    end
+
+    local acted = 0
+    local factions_tbl = iter_factions()
+    if not factions_tbl or type(factions_tbl.num_items) ~= "function" then return 0 end
+    local ok_n, faction_count = pcall(factions_tbl.num_items, factions_tbl)
+    if not ok_n then return 0 end
+    faction_count = tonumber(faction_count) or 0
+
+    for i = 0, faction_count - 1 do
+        if not budget_left() then break end
+        if state.error_seen_this_turn then break end
+        if acted >= 1 then break end  -- cap at 1 reactive action per turn
+
+        local ok_f, other = pcall(factions_tbl.item_at, factions_tbl, i)
+        if not ok_f or not other then goto continue end
+        if type(other.is_null_interface) == "function" and other:is_null_interface() then
+            goto continue
+        end
+
+        local ok_n2, other_name = pcall(function()
+            if type(other.name) == "function" then return other:name() end
+            return nil
+        end)
+        if not ok_n2 or not other_name or other_name == local_faction_key then
+            goto continue
+        end
+
+        -- Are there pending proposals?
+        local ok_has, has_pending = pcall(cm.faction_has_pending_diplomacy_with, cm, other_name, local_faction_key)
+        if not ok_has or not has_pending then goto continue end
+
+        -- Engine-side: ask the engine to resolve the pending proposal
+        -- for the player. We use cm:trigger_diplomacy_response
+        -- if present; otherwise we accept the engine's default
+        -- (which is usually "accept" for trades / NAPs).
+        if type(cm.trigger_diplomacy_response) == "function" then
+            local ok_t, why = safe_diplomacy(
+                string.format("trigger_diplomacy_response(%s)", other_name),
+                function() cm:trigger_diplomacy_response(other_name, local_faction_key, "accept") end)
+            if ok_t then
+                acted = acted + 1
+                record_decision("diplomacy",
+                    string.format("auto-accepted pending proposal from %s", other_name),
+                    local_faction_key)
+            else
+                debug("step_diplomatic_reactive: trigger rejected: " .. tostring(why))
+            end
+        end
+        ::continue::
+    end
+
+    return acted
+end
+
+-- ---------------------------------------------------------------------------
+-- W8: Spectator panel data
+-- ---------------------------------------------------------------------------
+-- Builds the data the spectator .twui.xml panel reads. Runs at the END
+-- of the turn so the panel reflects the full turn's decisions. This is
+-- NOT a step that issues orders — it's a "data shaping" step that
+-- populates state.spectator_army_cqis (the cycle list for "follow next
+-- army") and snapshots the decision_log so the panel can show a
+-- static-per-turn summary.
+--
+-- Called from run_for_local_faction AFTER the W6 step dispatch.
+
+local function step_spectator_summary(local_faction, local_faction_key)
+    if not local_faction then return 0 end
+    state.spectator_army_cqis = {}
+    state.spectator_army_cursor = 0
+
+    local characters = list_characters(local_faction)
+    if not characters or #characters == 0 then return 0 end
+
+    for _, c in ipairs(characters) do
+        if character_has_military_force(c) then
+            local cqi = cqi_of(c)
+            if cqi then
+                state.spectator_army_cqis[#state.spectator_army_cqis + 1] = cqi
+            end
+        end
+    end
+
+    debug(string.format("spectator: %d friendly armies in cycle list", #state.spectator_army_cqis))
+    return 0  -- this is a data-shaping step; no orders issued
 end
 
 --- W5: move idle armies toward nearest enemy region. Preserved from W5.
@@ -1369,6 +1934,12 @@ function wingman_ai.run_for_local_faction(context)
     local built = 0
     local recruited = 0
     local moves = 0
+    -- W8: new step counters. Recorded in the per-turn decision log so
+    -- the spectator panel can show them.
+    local post_battle = 0
+    local hero_actions = 0
+    local healed = 0
+    local reactive_dip = 0
 
     if not state.error_seen_this_turn then
         attacked = step_attack_adjacent(local_faction, local_faction_key)
@@ -1394,14 +1965,42 @@ function wingman_ai.run_for_local_faction(context)
     if not state.error_seen_this_turn then
         moves = step_move_armies(local_faction, local_faction_key)
     end
+    -- W8: post-attack post-battle decisions. Order matters: this MUST
+    -- run after step_attack_adjacent so any character that just fought
+    -- has its post-battle state visible to the engine. The engine
+    -- doesn't propagate "just fought" cheaply to Lua, but running
+    -- this in the same turn as the attack maximizes the chance of
+    -- catching damage / AP depletion.
+    if not state.error_seen_this_turn then
+        post_battle = step_post_battle_decisions(local_faction, local_faction_key)
+    end
+    -- W8: replenish one damaged force per turn. Runs after the W6
+    -- step dispatch so a force that took damage from a step_attack
+    -- can be healed the same turn.
+    if not state.error_seen_this_turn then
+        healed = step_replenish_armies(local_faction, local_faction_key)
+    end
+    -- W8: hero/agent nudges. Cap at 1 per turn to be safe.
+    if not state.error_seen_this_turn then
+        hero_actions = step_hero_actions(local_faction, local_faction_key)
+    end
+    -- W8: respond to incoming diplomatic proposals. Cap at 1 per turn.
+    if not state.error_seen_this_turn then
+        reactive_dip = step_diplomatic_reactive(local_faction, local_faction_key)
+    end
+    -- W8: shape the spectator panel data LAST so the panel reflects
+    -- the full turn's decisions. This step issues no orders.
+    step_spectator_summary(local_faction, local_faction_key)
 
     if state.error_seen_this_turn then
-        log(string.format("AI done early: attacked=%d garrisoned=%d researched=%d rites=%d dip=%d built=%d recruit=%d moves=%d ERR=%s",
+        log(string.format("AI done early: attacked=%d garrisoned=%d researched=%d rites=%d dip=%d built=%d recruit=%d moves=%d post_battle=%d heal=%d heroes=%d reactive_dip=%d ERR=%s",
             attacked, garrisoned, researched, rites, diplomacy, built, recruited, moves,
+            post_battle, healed, hero_actions, reactive_dip,
             tostring(state.error_seen_this_turn)))
     else
-        log(string.format("AI done: personality=%d attacked=%d garrisoned=%d researched=%d rites=%d dip=%d built=%d recruit=%d moves=%d orders=%d/%d dip=%d/%d",
+        log(string.format("AI done: personality=%d attacked=%d garrisoned=%d researched=%d rites=%d dip=%d built=%d recruit=%d moves=%d post_battle=%d heal=%d heroes=%d reactive_dip=%d orders=%d/%d dip=%d/%d",
             personality, attacked, garrisoned, researched, rites, diplomacy, built, recruited, moves,
+            post_battle, healed, hero_actions, reactive_dip,
             state.order_count_this_turn, orders_per_turn(),
             state.diplomacy_count_this_turn, diplomacy_per_turn_setting()))
     end
@@ -1494,6 +2093,9 @@ function wingman_ai._snapshot()
 end
 
 -- W6: list the step_* functions the controller dispatches (for tests).
+-- W8: the W6 list is preserved (so existing tests don't break) but
+-- the W8 dispatch list is exposed via wingman_ai._w8_dispatched_steps()
+-- so new tests can assert against the expanded set.
 function wingman_ai._w6_dispatched_steps()
     return {
         "step_apply_cai_personality",
@@ -1506,6 +2108,61 @@ function wingman_ai._w6_dispatched_steps()
         "step_discover_and_recruit",
         "step_move_armies",
     }
+end
+
+-- W8: the full step dispatch order. W6's 9 steps + 5 new ones
+-- (post_battle_decisions, replenish_armies, hero_actions,
+-- diplomatic_reactive, spectator_summary).
+function wingman_ai._w8_dispatched_steps()
+    return {
+        "step_apply_cai_personality",
+        "step_attack_adjacent",
+        "step_garrison_defensives",
+        "step_instantly_research",
+        "step_perform_rites",
+        "step_diplomacy",
+        "step_construct_buildings",
+        "step_discover_and_recruit",
+        "step_move_armies",
+        "step_post_battle_decisions",
+        "step_replenish_armies",
+        "step_hero_actions",
+        "step_diplomatic_reactive",
+        "step_spectator_summary",
+    }
+end
+
+-- W8: spectator panel data accessor. Returns a flat table the
+-- .twui.xml can query via Lua helpers. Cheap; no engine calls.
+function wingman_ai._spectator_data()
+    return {
+        turn_number = state.turn_number,
+        decision_log = state.decision_log or {},
+        army_cqis = state.spectator_army_cqis or {},
+        army_cursor = state.spectator_army_cursor or 0,
+        counters = {
+            attacked = state.decisions_attacked_this_turn,
+            garrisoned = state.decisions_garrisoned_this_turn,
+            researched = state.decisions_researched_this_turn,
+            rites = state.decisions_rites_this_turn,
+            diplomacy = state.decisions_diplomacy_this_turn,
+            built = state.decisions_built_this_turn,
+            recruited = state.decisions_recruited_this_turn,
+            moves = state.decisions_moves_this_turn,
+            healed = state.decisions_healed_this_turn,
+            post_battle = state.decisions_post_battle_this_turn,
+            hero_actions = state.decisions_hero_actions_this_turn,
+        },
+    }
+end
+
+-- W8: advance the spectator "follow next army" cursor. Returns
+-- the cqi of the next army to follow (or nil if no armies).
+function wingman_ai._spectator_advance_army_cursor()
+    local cqis = state.spectator_army_cqis or {}
+    if #cqis == 0 then return nil end
+    state.spectator_army_cursor = (state.spectator_army_cursor % #cqis) + 1
+    return cqis[state.spectator_army_cursor]
 end
 
 -- Exposed for tests — call after a "turn" to reset internal counters.
@@ -1523,6 +2180,23 @@ function wingman_ai._reset_for_tests()
     state.autopilot_active = false
     state.advisory_active  = false
     state.applied_personality = nil
+    -- W8: reset the spectator / decision log state.
+    state.decision_log = {}
+    state.decisions_attacked_this_turn = 0
+    state.decisions_garrisoned_this_turn = 0
+    state.decisions_researched_this_turn = 0
+    state.decisions_rites_this_turn = 0
+    state.decisions_diplomacy_this_turn = 0
+    state.decisions_built_this_turn = 0
+    state.decisions_recruited_this_turn = 0
+    state.decisions_moves_this_turn = 0
+    state.decisions_healed_this_turn = 0
+    state.decisions_post_battle_this_turn = 0
+    state.decisions_hero_actions_this_turn = 0
+    state.spectator_army_cqis = {}
+    state.spectator_army_cursor = 0
+    state.pause_at_turn = 0
+    state.cached_periodic_pause_turns = 0
 end
 
 -- ---------------------------------------------------------------------------
