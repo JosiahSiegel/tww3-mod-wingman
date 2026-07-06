@@ -29,25 +29,22 @@
 ---------------------------------------------------------------------
 -- 0. Hard dependency check
 ---------------------------------------------------------------------
--- Bail if MCT isn't loaded; downstream code reads defaults via
--- wingman_mct.get_default_settings()
-local mct = get_mct and get_mct() or nil
-if not mct then
-    out("[Wingman] WARNING: MCT (Mod Configuration Tool) is not loaded. Wingman requires MCT. Subscribe to Workshop item 2927955021.")
-    -- Still expose a wingman_mct table so other modules can safely
-    -- call is_available() / get_default_settings() without crashing.
-    wingman_mct = {
-        is_available         = function() return false end,
-        get_default_settings = function() return wingman_state_DEFAULTS() end,
-        read_settings        = function() return wingman_state_DEFAULTS() end,
-        validate_settings    = function(s) return s end,
-        rebuild_ban_list     = function() return false end,
-        get_banned_factions  = function() return {} end,
-        get_all_options      = function() return {} end,
-    }
-    _G.wingman_mct = wingman_mct
-    return
+-- Safe logging: the launcher's MCT-load context may not have `out`
+-- defined as a global. Use a local proxy that falls back to a no-op
+-- so a missing `out` never throws and silently kills the file body.
+local function safe_out(msg)
+    if type(out) == "function" then
+        pcall(out, msg)
+    end
 end
+
+-- Get the MCT handle. If MCT is not loaded, the mct:register_mod call
+-- below will throw a clear "attempt to index a nil value" error which
+-- the launcher's outer pcall catches and logs as
+-- "Failed to load mod file wingman_mct.lua! Error is ...". That is
+-- the correct failure mode -- NOT a silent bail at out() like the
+-- previous early-return block caused.
+local mct = get_mct and get_mct() or nil
 
 
 ---------------------------------------------------------------------
@@ -187,7 +184,7 @@ local function parse_key_csv(value)
             -- and shadowed the global, causing "attempt to call
             -- a table value" -- fixed by renaming the local to
             -- 'result'.
-            out("[Wingman] WARNING: CSV key '" .. raw .. "' ignored -- only [a-z0-9_] allowed.")
+            safe_out("[Wingman] WARNING: CSV key '" .. raw .. "' ignored -- only [a-z0-9_] allowed.")
         end
     end
     return result
@@ -578,4 +575,4 @@ _G.wingman_mct = wingman_mct
 
 -- Log successful registration so users can verify the integration
 -- loaded in their lua_mod_log.txt / script_log_*.txt.
-out("[Wingman] MCT registration complete. 30 settings, 6 sliders, 6 dropdowns, 3 text inputs, 15 checkboxes.")
+safe_out("[Wingman] MCT registration complete. 30 settings, 6 sliders, 6 dropdowns, 3 text inputs, 15 checkboxes.")

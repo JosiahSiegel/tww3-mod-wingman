@@ -320,6 +320,44 @@ _G.core = {
 
 _G.mission_manager = nil
 
+-- MCT stub: provides get_mct() so wingman_mct.lua's
+-- `local mct = get_mct() ... mct:register_mod(...)` works. This is
+-- a recording stub: it captures every call so tests can assert the
+-- registration shape. The MCT integration test has a more elaborate
+-- version of this stub; for the smoke test we just need enough to
+-- not throw on the basic mct:register_mod / set_* / add_new_*
+-- / add_new_option calls. Any unstubbed method raises a clear error
+-- so regressions surface here, not silently in the game.
+function _G.get_mct()
+    return {
+        register_mod = function(self, key) return _mct_mod end,
+        get_version_number = function(self) return 1.3 end,
+        get_version = function(self) return "1.3.0" end,
+    }
+end
+
+local _MctModClass = {}
+_MctModClass.__index = _MctModClass
+function _MctModClass:set_workshop_id(id) end
+function _MctModClass:set_version(v, sv) end
+function _MctModClass:set_main_image(p, w, h) end
+function _MctModClass:set_description(d) end
+function _MctModClass:set_title(t) end
+function _MctModClass:set_author(a) end
+function _MctModClass:add_new_section(key, label) end
+function _MctModClass:add_new_option(key, otype)
+    return {
+        set_default_value = function(self, v) end,
+        set_text = function(self, t) end,
+        set_tooltip_text = function(self, t) end,
+        set_is_global = function(self, b) end,
+        slider_set_min_max = function(self, mn, mx) end,
+        slider_set_step_size = function(self, s) end,
+        add_dropdown_values = function(self, list) end,
+    }
+end
+_mct_mod = setmetatable({}, _MctModClass)
+
 _G.wingman_mct = {
     is_available = function(self) return false end,
     get_default_settings = function(self)
