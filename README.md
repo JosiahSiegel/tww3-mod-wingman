@@ -7,6 +7,9 @@ Let an AI co-pilot take the stick on your campaign and battles. Set rules, turn 
 - **Active AI Controller** — Wingman doesn't just hand the turn back; it actively *moves your armies* toward enemies, *queues* building slots, *recruits*, and *attacks*. Stays within a per-turn order budget for safety.
 - **W7 Autopilot mode** — full UI lock + CAI personality swap + scripted orders. Click "Take Back Control" on the banner (or hold ESC 3s) to take back control anytime. The closest you can get to "AI plays my turn" in TWW3 without a literal ownership-flip API.
 - **W7 Advisory mode** — at the start of each FactionTurnStart, Wingman surfaces a 3-button dilemma (Apply / Skip / Always Apply). You decide each turn whether the AI runs its plan.
+- **W8 Full turn coverage** — Wingman now handles post-battle decisions (replenish, stop convalescing), heals damaged armies, embeds idle agents, auto-accepts incoming trade/peace offers, and queues buildings in empty settlement slots. The 14-step dispatch minimizes "turn stalls".
+- **W8 Spectator panel** — a rich in-game panel showing the current turn, a per-turn action summary, the last few decisions, and a "Follow Next AI Army" button to watch Wingman play. Appears alongside the take-back banner in Autopilot mode.
+- **W8 Strategic pause** — opt into a "give me a checkpoint every N turns" 4-button dilemma (Continue / Skip This Pause / Take Control / Always Pause). A safety valve beyond the ESC take-back.
 - **Campaign Auto-Pilot** — Wingman auto-ends your turns so AI factions play uninterrupted while you watch.
 - **Battle Takeover** — choose from scripted AI fighting, autoresolve-if-favorable, pause-to-choose, or just spectate.
 - **Rules & Limits** — turn caps, custom victory conditions (own these settlements / destroy these factions), banned-faction watcher.
@@ -111,6 +114,51 @@ When the user sets `wingman_ai_mode = advisory`, at the start of each FactionTur
 Advisory mode is non-locking by design — the player can still interact with the campaign UI at any time. The W6 step dispatch is gated only on the user's per-turn choice.
 
 See `tests/manual/wingman_scenarios.md` → **S11d** (Autopilot) and **S11e** (Advisory) for the runnable TDD scenarios.
+
+## W8 Enhancements: Full Coverage, Spectator, Strategic Pause
+
+W8 makes Wingman as good as the TWW3 modding API allows. Three additions:
+
+### Full turn coverage (W8-A)
+
+The AI controller now dispatches **14 steps** per turn (was 9). The 5 new steps close the gaps that used to cause "turn stalls" (where a missing case would exhaust the order budget and force you to take back control):
+
+- **Post-battle decisions** — replenish action points for idle characters, stop a convalescing hero per turn (fixes the "Wounded lord never comes back" bug).
+- **Replenish armies** — heal 1 damaged force per turn via `cm:heal_military_force`.
+- **Hero actions** — embed an idle agent into a friendly force via `cm:embed_agent_in_force`.
+- **Reactive diplomacy** — auto-accept incoming trade / non-aggression pacts from other factions (skips war + vassal requests — those need your judgment).
+- **Buildings (now real)** — `step_construct_buildings` was a documented stub since v0.1. It now actually queues a buildable building in each empty settlement slot.
+
+### Spectator panel (W8-C)
+
+A rich in-game panel (`ui/campaign ui/wingman_spectator.twui.xml`) appears alongside the take-back banner in Autopilot mode. It shows:
+
+- The current turn number
+- A per-turn action summary (attacked=2 moved=5 built=1 healed=1 ...)
+- The last 6 decisions Wingman made
+- A **"Follow Next AI Army"** button that cycles the camera through your armies so you can watch Wingman play
+- A **"Close Panel"** button (Wingman keeps running)
+
+### Strategic pause (W8-D)
+
+Set `wingman_ai_periodic_pause_turns` in MCT to get a **4-button checkpoint dilemma** every N turns:
+
+- **Continue** — AI runs this turn; next pause in N turns
+- **Skip This Pause** — AI sits out this turn; next pause in N turns
+- **Take Control** — release Autopilot entirely
+- **Always Pause** — turn this into a per-turn prompt (like Advisory mode)
+
+This is a safety valve beyond the on-demand ESC take-back.
+
+## The Engine Ceiling (why Wingman can't "become the AI")
+
+You might wonder: why doesn't Wingman just flip your faction to AI-controlled and let the engine play it natively? **Because the TWW3 engine doesn't allow it — from any modding surface.**
+
+- The `is_human` bit on a faction is a **C++-owned, signed-binary decision**. CA exposes exactly one Lua binding for it — the read-only `faction:is_human()` (verified in vanilla source at `lib_campaign_manager.lua:3878`). There is **no** `cm:set_faction_human`, no `make_faction_ai`, no DB column, no `.pack` override. The full `FACTION_SCRIPT_INTERFACE` has 267 methods and **zero** setters for the human bit.
+- A C++-level fix would require recompiling the game executable, which is impossible: TWW3 is closed-source and the Steam binary is signed. The modding community universally accepts the Lua-side ceiling as the working boundary.
+- The most successful community "spectate AI" mod — **[Auto-Run & Spectate AI](https://steamcommunity.com/sharedfiles/filedetails/?id=3008387343)** by Acephelos — is at the *same* ceiling. It does not flip the human bit; it auto-ends your turn and grants vision via map-reveal. The author even recommends playing as The Changeling or Nakai for a "pure" simulation, precisely because your faction stays human.
+
+**What Wingman does instead** (the closest the engine permits): UI lock + legendary CAI personality swap + scripted-order dispatch on every turn + CAI evaluation-context rewrite to "ALPHA" (highest skill). W8's full-coverage step dispatch makes the "your faction is technically still human" gap academic in practice — Wingman handles movement, attacks, sieges, recruitment, buildings, research, rites, diplomacy, healing, post-battle cleanup, and hero actions, then ends the turn.
 
 ## Known Limitations (v0.1 alpha)
 

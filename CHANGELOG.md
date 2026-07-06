@@ -2,6 +2,92 @@
 
 All notable changes to Wingman will be documented here.
 
+## [Unreleased] — W8
+
+### Added
+- **W8-A: Expanded step coverage** — the AI controller's step dispatch
+  grew from 9 to 14 functions. New steps:
+  - `step_post_battle_decisions` — replenish AP for idle characters
+    + stop 1 convalescing hero per turn. Catches the "Wounded hero
+    never comes back" bug.
+  - `step_replenish_armies` — heal 1 damaged force per turn via
+    `cm:heal_military_force`. Caps at 1 to avoid savegame churn.
+  - `step_hero_actions` — embed an idle agent into a friendly force
+    via `cm:embed_agent_in_force`. Engine handles embedding on its
+    own tick usually; this is the nudge for the edge case.
+  - `step_diplomatic_reactive` — scan for pending diplomatic
+    proposals FROM other factions and auto-accept trades/NAPs.
+    Skips war + vassal requests (need player judgment).
+  - `step_spectator_summary` — shape the spectator panel data at
+    the end of the turn (army cycle list for "follow next army").
+  - `step_construct_buildings` — was a documented stub since v0.1.
+    Now actually queues a buildable building in each empty
+    settlement slot, using `cm:pick_random_buildable` to discover
+    the building_key and `cm:add_building_to_settlement_queue`
+    to queue it. Per-slot, budget-gated.
+- **W8-C: Spectator panel** (`ui/campaign ui/wingman_spectator.twui.xml`).
+  A richer UI that lives alongside the W7 "Wingman in Control"
+  banner when Autopilot mode is engaged. Shows:
+  - Current turn number
+  - Per-turn counter summary (attacked, garrisoned, researched,
+    rites, diplo, built, recruit, moves, healed, post_battle,
+    hero_actions) as a single line
+  - The last 6 decisions joined as a `kind: summary | kind: summary`
+    text line
+  - A "Follow Next AI Army" button that cycles through the player's
+    friendly armies and centers the campaign camera
+  - A "Close Panel" button that hides the panel (Wingman keeps
+    running)
+- **W8-D: Strategic pause** — opt-in "every N turns, give me a
+  4-button dilemma" feature. 4 buttons:
+  - **Continue** — AI runs this turn; next pause in N turns.
+  - **Skip This Pause** — AI doesn't run this turn; counter resets
+    so next pause is in N turns (effectively 2N from now).
+  - **Take Control** — release autopilot entirely; counter to 0.
+  - **Always Pause** — fire this dilemma every turn; counter to 0.
+- **New W8 settings**:
+  - `wingman_ai_build_enabled` (bool, default true)
+  - `wingman_ai_periodic_pause_turns` (int 0-1000, default 0 = off)
+  - `wingman_ai_heal_enabled` (bool, default true)
+  - `wingman_ai_post_battle_enabled` (bool, default true)
+  - `wingman_ai_reactive_diplo_enabled` (bool, default true)
+- **New public surface** (W8):
+  - `wingman_ai._w8_dispatched_steps()` — the 14-step W8 list
+    (W6's `_w6_dispatched_steps` still returns 9 for back-compat).
+  - `wingman_ai._spectator_data()` — turn summary + army cycle
+    list + 11 per-turn counters.
+  - `wingman_ai._spectator_advance_army_cursor()` — cycles the
+    cursor through the army list (or nil if empty).
+  - `wingman_ai._should_fire_strategic_pause()` — returns true
+    when the configured interval is met (or always_pause is set).
+  - `record_decision(kind, summary, faction_key)` — the per-step
+    decision-log helper used by every step_* function.
+- **New tests**: `tests/manual/test_w8_step_coverage.py` — 20
+  focused tests covering W8 step functions, spectator panel,
+  strategic pause.
+
+### Engine ceiling (W8 honest scope)
+- W8 is the realistic ceiling of what the modding API allows. TWW3
+  has NO `cm:set_faction_human` API; the `is_human` bit on a
+  faction is a C++-owned, signed-binary decision in the engine.
+  This was independently verified in vanilla source at
+  `lib_campaign_manager.lua:3878` (only the reader is bound to
+  Lua; the C++ setter is not exposed). The full FACTION_SCRIPT_INTERFACE
+  has 267 methods and zero setters for the human bit.
+- Our W6 + W7 + W8 stack does the closest thing the engine allows:
+  UI lock + legendary-personality swap + scripted-order dispatch
+  on every FactionTurnStart + CAI context rewrite to "ALPHA".
+- The most successful community "spectate AI" mod ("Auto-Run &
+  Spectate AI" by Acephelos, Workshop ID `3008387343`) is at the
+  same ceiling — it does NOT flip the human bit, it auto-ends the
+  turn and grants vision via map-reveal. The author explicitly
+  tells users to play as Changeling/Nakai for a "pure" simulation
+  because the human faction stays human.
+- For a C++-level fix (recompiling the engine binary) we'd need
+  the game source — TWW3 is closed-source and the Steam binary
+  is signed. The modding community universally accepts the
+  Lua-side ceiling as the working boundary.
+
 ## [Unreleased] — W7
 
 ### Added
