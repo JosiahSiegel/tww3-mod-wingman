@@ -60,14 +60,24 @@ The repo includes a `.github/workflows/release.yml` workflow that automates buil
 
 ## How It Works
 
-Wingman doesn't "give" your faction to the AI (the game has no such API for player factions, so ownership stays with you). What it **does** is issue scripted orders on your behalf:
+Wingman doesn't "give" your faction to the AI (the game has no such API for player factions — confirmed in vanilla source: only the read-only `cm:is_faction_human` exists; `cm:set_faction_human` was never an API). What it **does** is issue scripted orders on your behalf AND rewrite your faction's AI-evaluation context to the highest-skill profile:
 
-1. **AI Controller** (W5, default on) — at the start of each of your turns, Wingman *moves* your idle armies toward enemy regions, *queues* a building in each of your settlements, *recruits* (when a safe unit_key is configured), and ends the turn. Your armies actually move on the campaign map.
-2. **Turn automation** — after orders are queued, Wingman evaluates your rules (turn cap, custom win, faction bans, periodic break), optionally dismisses popups, and calls `cm:end_turn()` so the AI factions take their turns.
+1. **CAI personality rewrite (W6 Option B)** — at the start of the campaign, Wingman calls `cm:cai_set_faction_script_context(local_faction, "ALPHA")` so the engine's strategic AI (stance, threat, priorities) uses the highest-skill profile when evaluating your faction.
+2. **Active AI controller (W6 Option A)** — each turn, Wingman issues scripted orders on your behalf:
+   - **Move armies** toward / into enemy regions
+   - **Attack adjacent enemies** (gated by `wingman_ai_attack_adjacent`)
+   - **Siege settlements** via `cm:attack_region`
+   - **Garrison idle defenders** in friendly settlements (defensive aggression)
+   - **Queue buildings** in each owned settlement
+   - **Recruit units** using auto-discovered unit_keys (pool-based, faction-safe)
+   - **Research all technologies** (bulk, once per campaign)
+   - **Perform faction rituals** (once per turn)
+   - **Handle diplomacy** — trade agreements, peace, alliances, vassals, confederations, war declarations (gated by `wingman_ai_diplomacy_enabled`, default OFF; war declarations are intentionally not auto-issued in v0.1)
+3. **Turn automation** — after orders are queued, Wingman evaluates your rules (turn cap, custom win, faction bans, periodic break), optionally dismisses popups, and calls `cm:end_turn()` so the AI factions take their turns.
 
 You become a spectator with full vision. You can take back control anytime by toggling Wingman off (or use **periodic breakpoints** to be handed control every N turns).
 
-> **Honest scope (W5 AI Controller).** It's a *scripted-order driver*, not a real AI personality. TWW3 has no API to transfer your faction to AI control. Inside battles, the real AI planner still makes tactical decisions. Diplomacy, rites, techs, hero skill picks, and war declarations are not script-driven — they use vanilla logic. The AI Controller handles the visible parts: movement, recruitment, building. See `tests/manual/wingman_scenarios.md` → **S11** for what passes / fails.
+> **Honest scope (W6 AI Controller).** It's a *scripted-order driver + personality rewrite*, not a literal AI take-over. TWW3 has no `cm:set_faction_human` API to literally transfer ownership; we use the closest equivalent (`cm:cai_set_faction_script_context`). Inside battles, the real AI planner still makes tactical decisions. The controller handles the visible parts: movement, attack, recruitment, building, research, rites, diplomacy. See `tests/manual/wingman_scenarios.md` → **S11 / S11b / S11c** for what passes / fails.
 
 ## Known Limitations (v0.1 alpha)
 

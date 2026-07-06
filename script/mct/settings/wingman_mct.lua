@@ -57,6 +57,12 @@ if not mct then
                 wingman_ai_enabled                  = true,
                 wingman_ai_aggression               = "aggressive",
                 wingman_ai_orders_per_turn          = 12,
+                -- AI Controller (W6)
+                wingman_ai_attack_adjacent          = true,
+                wingman_ai_diplomacy_enabled        = false,
+                wingman_ai_diplomacy_per_turn       = 2,
+                wingman_ai_research_enabled         = true,
+                wingman_ai_rituals_enabled          = true,
             }
         end,
         read_settings = function() return wingman_mct.get_default_settings() end,
@@ -107,6 +113,12 @@ local DEFAULT_SETTINGS = {
     wingman_ai_enabled                  = true,
     wingman_ai_aggression               = "aggressive",
     wingman_ai_orders_per_turn          = 12,
+    -- AI Controller (W6)
+    wingman_ai_attack_adjacent          = true,
+    wingman_ai_diplomacy_enabled        = false,
+    wingman_ai_diplomacy_per_turn       = 2,
+    wingman_ai_research_enabled         = true,
+    wingman_ai_rituals_enabled          = true,
 }
 
 -- Slider (min, max, step, default) — must match DEFAULT_SETTINGS
@@ -116,6 +128,7 @@ local SLIDER_RANGES = {
     wingman_autoresolve_threshold       = {min = 0,  max = 100,  step = 1, default = 60},
     wingman_turn_cap_value              = {min = 1,  max = 500,  step = 1, default = 50},
     wingman_ai_orders_per_turn          = {min = 1,  max = 50,   step = 1, default = 12},
+    wingman_ai_diplomacy_per_turn       = {min = 0,  max = 10,   step = 1, default = 2},
 }
 
 -- Dropdown option tables — keys are short, display is co-pilot-friendly
@@ -330,6 +343,40 @@ do
         SLIDER_RANGES.wingman_ai_orders_per_turn.min,
         SLIDER_RANGES.wingman_ai_orders_per_turn.max)
     opt:slider_set_step_size(SLIDER_RANGES.wingman_ai_orders_per_turn.step)
+    opt:set_assigned_section("wingman_section_campaign")
+
+    local opt = wingman_mod:add_new_option("wingman_ai_attack_adjacent", "checkbox")
+    opt:set_text("AI attacks adjacent enemies")
+    opt:set_tooltip_text("When enabled, your AI driver actively attacks adjacent enemy armies and settlements (subject to the order budget). The highest-skill-level AI takes full control — no waiting for you to click attack.")
+    opt:set_default_value(DEFAULT_SETTINGS.wingman_ai_attack_adjacent)
+    opt:set_assigned_section("wingman_section_campaign")
+
+    local opt = wingman_mod:add_new_option("wingman_ai_diplomacy_enabled", "checkbox")
+    opt:set_text("AI handles diplomacy")
+    opt:set_tooltip_text("When enabled, your AI driver will declare war, make peace, sign trade agreements, NAPs, alliances, vassals, and confederations. Default OFF — flip this on if you want full autonomy. Aggression setting controls whether the AI leans toward war or peace.")
+    opt:set_default_value(DEFAULT_SETTINGS.wingman_ai_diplomacy_enabled)
+    opt:set_assigned_section("wingman_section_campaign")
+
+    local opt = wingman_mod:add_new_option("wingman_ai_diplomacy_per_turn", "slider")
+    opt:set_text("Diplomacy actions per turn (cap)")
+    opt:set_tooltip_text("Maximum diplomatic actions the AI takes per turn. 0 = disable diplomacy regardless of the master switch. Default 2 — enough to react, not so many it spirals.")
+    opt:set_default_value(SLIDER_RANGES.wingman_ai_diplomacy_per_turn.default)
+    opt:slider_set_min_max(
+        SLIDER_RANGES.wingman_ai_diplomacy_per_turn.min,
+        SLIDER_RANGES.wingman_ai_diplomacy_per_turn.max)
+    opt:slider_set_step_size(SLIDER_RANGES.wingman_ai_diplomacy_per_turn.step)
+    opt:set_assigned_section("wingman_section_campaign")
+
+    local opt = wingman_mod:add_new_option("wingman_ai_research_enabled", "checkbox")
+    opt:set_text("AI researches technologies")
+    opt:set_tooltip_text("When enabled, the AI will trigger bulk research once per campaign (TWW3 has no per-tech research API — this completes the whole tree at once). Use sparingly; once-per-campaign because research is binary in TWW3 scripting.")
+    opt:set_default_value(DEFAULT_SETTINGS.wingman_ai_research_enabled)
+    opt:set_assigned_section("wingman_section_campaign")
+
+    local opt = wingman_mod:add_new_option("wingman_ai_rituals_enabled", "checkbox")
+    opt:set_text("AI performs faction rites")
+    opt:set_tooltip_text("When enabled, the AI performs any available faction rites once per turn. Cannot target specific factions for rituals that require a target — the engine picks based on availability.")
+    opt:set_default_value(DEFAULT_SETTINGS.wingman_ai_rituals_enabled)
     opt:set_assigned_section("wingman_section_campaign")
 end
 

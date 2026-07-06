@@ -38,8 +38,10 @@ When you're short on time, run these four in order. They cover boot, core orches
 4. **S3** — Turn cap. Confirms the rule engine.
 5. **S10** — MP guard. Confirms the safety floor.
 6. **S11** — AI Controller. Confirms Wingman actively moves your armies (not just hands the turn back).
+7. **S11b** — Active AI: attack, research, rites (W6). Confirms the highest-skill AI takes full control.
+8. **S11c** — Defensive garrison (W6). Confirms defensive aggression garrisoned idle defenders.
 
-If S7, S1, S6, S3, S10, and S11 all pass, the mod is bootable and the core paths work. Defer S2, S4, S5, S8, S9 to a deeper pass before each release.
+If S7, S1, S6, S3, S10, S11, S11b, and S11c all pass, the mod is bootable and the core paths work. Defer S2, S4, S5, S8, S9 to a deeper pass before each release.
 
 ---
 
@@ -564,6 +566,115 @@ budget enforcement.
 
 ---
 
+## S11b — Active AI: Attack, Garrison, Research, Rites (W6)
+
+**Objective**: Verify the W6 scripted-order driver actually performs the
+AI behaviors the user asked for (move armies, attack adjacent enemies,
+queue buildings, recruit, research, perform rites, defensive garrison).
+
+> **Honest scope box — same as S11 but updated for W6.**
+>
+> The W6 controller is now using real TWW3 cm APIs verified against the
+> vanilla source (`/tmp/opencode/wh3-dump/script/_lib/lib_campaign_manager.lua`):
+>
+> - Move: `cm:move_to(char, x, y)` with coords from `cm:get_region(rk):settlement():logical_position_x/y()`
+> - Attack: `cm:attack(charA, charB, lay_siege=true)` / `cm:attack_region(char, rk)`
+> - Garrison: `cm:join_garrison(char, sk)`
+> - Build: `cm:add_building_to_settlement_queue(slot, bk)` (stub in v0.1; returns 0 — needs future data module)
+> - Recruit: `cm:grant_unit_to_character(cs, uk)` with unit_key from `force:recruitment_items()`
+> - Research: `cm:instantly_research_all_technologies(fk)` (bulk only, once per campaign)
+> - Rites: `cm:perform_ritual(fk, target, rk)` once per turn
+> - Diplomacy: `cm:force_make_trade_agreement(a, b)` (war declarations NOT auto-issued in v0.1)
+> - Personality: `cm:cai_set_faction_script_context(fk, "ALPHA")` once per campaign
+
+**Setup**:
+- New Immortal Empires single-player campaign (Reikland suggested).
+- In MCT → Wingman settings on Campaign Handover section:
+  - `wingman_enabled` = **true**
+  - `wingman_campaign_handover_enabled` = **true**
+  - `wingman_ai_enabled` = **true**
+  - `wingman_ai_aggression` = **aggressive**
+  - `wingman_ai_orders_per_turn` = **12**
+  - `wingman_ai_attack_adjacent` = **true**
+  - `wingman_ai_diplomacy_enabled` = **false** (default)
+  - `wingman_ai_research_enabled` = **true**
+  - `wingman_ai_rituals_enabled` = **true**
+- Script logging enabled.
+
+**Steps**:
+1. Save immediately after starting the campaign so you can roll back.
+2. End the player's first turn manually. Wingman auto-ends it within 2 s.
+3. Let AI factions play out 5 turns (don't peek inside, just observe).
+4. Inspect the most recent `script_log_*.txt`.
+
+**Pass condition** (binary):
+- Log shows, on the local-faction `FactionTurnStart` turns:
+  - `[Wingman][AI] CAI personality rewritten to ALPHA for wh_main_emp_empire` (once, on first run)
+  - `[Wingman][AI] AI run: turn=N aggression=aggressive budget=12 dip_budget=2` (each turn)
+  - `[Wingman][AI] AI done: personality=1 attacked=A garrisoned=G researched=R rites=T dip=D built=B recruit=C moves=M orders=...` (each turn)
+  - At least one turn where `researched=1` (bulk research fired)
+  - No `ERROR_SAFE: wingman_ai:` line in the log.
+  - No `WARN: safe_order(...):` for any W6 API.
+- Visual: at least one of your armies has either moved toward or attacked an enemy (movement arrow visible OR battle initiated).
+- After 5 turns, open the Technology panel: ALL your faction's techs should be researched (the bulk-completion behavior).
+
+**Evidence**:
+- `evidence/s11b_ai_log.log` — log showing CAI rewrite + AI done lines for at least 5 turns.
+- `evidence/s11b_tech_panel.png` — tech panel screenshot showing 100% research progress.
+- `evidence/s11b_attack_after_3_turns.png` — campaign-map screenshot showing an issued attack move order.
+
+**Fail signals**:
+- `ERROR_SAFE: wingman_ai:` appearing on the first turn → an `cm:` API in
+  `wingman_ai.lua` doesn't exist in your TWW3 patch. The first throw trips
+  error-safe mode (by design). The order_* helpers all log a "no_api_XYZ"
+  reason when the API is absent, which is acceptable. Find which helper
+  logged and file the missing API as a bug.
+- `AI done: ... researched=0` for many turns → check `was_tech_research_done()`
+  in `core:svr_load_registry_string("wingman.v1.tech_research_done")`; if
+  it's returning "1" prematurely, the registry helper is buggy.
+- Tech panel shows 0% research after 5 turns → either the campaign just
+  started and the bulk-research failed, or the AI controller's FactionTurnStart
+  listener isn't firing for your faction. Re-check S11 setup.
+
+---
+
+## S11c — Defensive Behavior: Garrison + Stand-and-Defend (W6)
+
+**Objective**: Verify the W6 `step_garrison_defensives` step actually
+garrisons idle defenders in friendly settlements when aggression is
+set to defensive.
+
+**Setup**:
+- Continue from S11b (or start a fresh campaign).
+- In MCT → Wingman settings on Campaign Handover section:
+  - `wingman_ai_enabled` = **true**
+  - `wingman_ai_aggression` = **defensive**
+  - `wingman_ai_attack_adjacent` = **true** (doesn't matter — defensive suppresses attacks)
+  - All other AI settings: defaults.
+- Script logging enabled.
+
+**Steps**:
+1. End the player's turn. Wingman auto-ends it.
+2. Let the AI play 3 turns.
+3. Inspect the most recent `script_log_*.txt`.
+
+**Pass condition**:
+- Log shows `garrisoned=1` or `garrisoned=2` on at least one turn.
+- Visual: at least one of your idle armies has a movement arrow toward a friendly settlement (the garrison step queues a `cm:join_garrison`).
+- No `WARN: join_garrison: ...` (means the API is missing).
+
+**Evidence**:
+- `evidence/s11c_defensive_log.log`
+- `evidence/s11c_garrison_arrow.png` — campaign-map screenshot showing the garrison move.
+
+**Fail signals**:
+- `garrisoned=0` for all turns under defensive aggression → either the
+  step's "frontier detection" heuristic is missing enemy regions (check
+  `state.cached_enemy_regions`), or no owned settlements exist (start a
+  longer campaign).
+
+---
+
 ## Evidence checklist
 
 Use this table to track which artifacts you have at the end of a test pass. Mark each cell ✓/✗ and link to the file.
@@ -581,6 +692,8 @@ Use this table to track which artifacts you have at the end of a test pass. Mark
 | S9 result dismiss | n/a | n/a | | | | |
 | S10 MP guard | n/a | n/a | | | | |
 | S11 AI controller | | | | | | |
+| S11b active AI (attack/research) | | | | | | |
+| S11c defensive garrison | | | | | | |
 
 A release is **READY** for Steam Workshop upload only when:
 

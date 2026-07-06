@@ -98,6 +98,13 @@ local DEFAULTS = {
     wingman_ai_enabled                    = true,
     wingman_ai_aggression                 = "aggressive",
     wingman_ai_orders_per_turn            = 12,
+
+    -- AI Controller (W6) — high-skill behavioral surface.
+    wingman_ai_attack_adjacent            = true,
+    wingman_ai_diplomacy_enabled          = false,  -- opt-in: war declarations are user-visible
+    wingman_ai_diplomacy_per_turn         = 2,
+    wingman_ai_research_enabled           = true,
+    wingman_ai_rituals_enabled            = true,
 }
 
 -- Allowed values for enum-like settings. Unknown values revert to the default.
@@ -126,6 +133,7 @@ local BOUNDS = {
     wingman_autoresolve_threshold         = { min = 0,   max = 100 },
     wingman_turn_cap_value                = { min = 1,   max = 500 },
     wingman_ai_orders_per_turn            = { min = 1,   max = 50 },
+    wingman_ai_diplomacy_per_turn         = { min = 0,   max = 10 },
 }
 
 -- ---------------------------------------------------------------------------
@@ -369,6 +377,10 @@ local function validate_settings(input)
         "wingman_custom_win_enabled",
         "wingman_faction_restrictions_enabled",
         "wingman_ai_enabled",
+        "wingman_ai_attack_adjacent",
+        "wingman_ai_diplomacy_enabled",
+        "wingman_ai_research_enabled",
+        "wingman_ai_rituals_enabled",
     }) do
         out_settings[key] = coerce_bool(out_settings[key], DEFAULTS[key])
     end
@@ -399,6 +411,11 @@ local function validate_settings(input)
             BOUNDS.wingman_ai_orders_per_turn.min,
             BOUNDS.wingman_ai_orders_per_turn.max,
             DEFAULTS.wingman_ai_orders_per_turn)
+    out_settings.wingman_ai_diplomacy_per_turn =
+        clamp_number(out_settings.wingman_ai_diplomacy_per_turn,
+            BOUNDS.wingman_ai_diplomacy_per_turn.min,
+            BOUNDS.wingman_ai_diplomacy_per_turn.max,
+            DEFAULTS.wingman_ai_diplomacy_per_turn)
 
     -- Enums
     for k, allowed in pairs(ALLOWED_ENUMS) do
@@ -796,6 +813,67 @@ end
 function wingman_state.get_last_war_event_turn()
     if not state.initialized then return 0 end
     return state.last_war_event_turn
+end
+
+-- ---------------------------------------------------------------------------
+-- One-shot registry markers (W6) — track single-shot AI actions across save/load
+-- so e.g. "research all techs" runs at most once per campaign, even after reload.
+-- ---------------------------------------------------------------------------
+
+local KEY_TECH_RESEARCH_DONE   = "wingman.v1.tech_research_done"
+local KEY_RITUALS_DONE         = "wingman.v1.rituals_done"
+
+function wingman_state.mark_tech_research_done(value)
+    -- value defaults to true. No-op if state isn't initialized.
+    if not state.initialized then return false end
+    return safe_save_registry(KEY_TECH_RESEARCH_DONE, value ~= false and "1" or "0")
+end
+
+function wingman_state.was_tech_research_done()
+    if not state.initialized then return false end
+    local raw = safe_load_registry(KEY_TECH_RESEARCH_DONE)
+    return raw == "1"
+end
+
+function wingman_state.mark_ritual_done(ritual_key)
+    if not state.initialized or type(ritual_key) ~= "string" or ritual_key == "" then
+        return false
+    end
+    -- Track via a JSON-encoded map of ritual_key -> "turn_window:turn".
+    -- Keep at most 8 most-recent entries to bound storage.
+    local existing_raw = safe_load_registry(KEY_RITUALS_DONE)
+    local existing = json_decode(existing_raw)
+    if type(existing) ~= "table" then existing = {} end
+    local turn = 0
+    if cm and type(cm.turn_number) == "function" then
+        local ok, t = pcall(cm.turn_number, cm)
+        if ok then turn = tonumber(t) or 0 end
+    end
+    existing[ritual_key] = tostring(turn)
+    -- Bound: keep only keys whose turn is within last 30 turns of current.
+    local cutoff = turn - 30
+    for k, v in pairs(existing) do
+        local n = tonumber(v) or 0
+        if n < cutoff then existing[k] = nil end
+    end
+    safe_save_registry(KEY_RITUALS_DONE, json_encode(existing))
+    return true
+end
+
+function wingman_state.was_ritual_done_recently(ritual_key, within_turns)
+    if not state.initialized then return false end
+    local existing_raw = safe_load_registry(KEY_RITUALS_DONE)
+    local existing = json_decode(existing_raw)
+    if type(existing) ~= "table" or type(existing[ritual_key]) ~= "string" then
+        return false
+    end
+    local last_turn = tonumber(existing[ritual_key]) or 0
+    local current_turn = 0
+    if cm and type(cm.turn_number) == "function" then
+        local ok, t = pcall(cm.turn_number, cm)
+        if ok then current_turn = tonumber(t) or 0 end
+    end
+    return (current_turn - last_turn) <= (within_turns or 5)
 end
 
 -- Read-only snapshot for diagnostics. Not part of the public contract.

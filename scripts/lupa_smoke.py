@@ -57,6 +57,9 @@ POST_BOOTSTRAP_AI_CALLS = (
     # run_for_local_faction must return a number (orders count) without
     # throwing. The stubbed engine has no army list, so it should return 0.
     "wingman_ai.run_for_local_faction",
+    # W6: returns a list of step_* names that run_for_local_faction dispatches.
+    # Used by tests/manual/test_w6_ai_features.py and as a smoke gate.
+    "wingman_ai._w6_dispatched_steps",
 )
 
 
@@ -88,11 +91,76 @@ _G.cm = {
     end,
     get_faction = function(self, name) return nil end,
     char_lookup_str = function(self, cqi) return nil end,
-    order_move_to_settlement = function(self, cs, rk) return true end,
-    force_recruit_unit = function(self, sk, uk, fk) return true end,
-    construct_building = function(self, sk, fk, slot) return true end,
-    queue_building_for_faction = function(self, sk, fk, slot) return true end,
     end_turn = function(self) return true end,
+
+    -- W6 (deep-research 2026-07-05): real TWW3 cm: API stubs that mirror
+    -- the engine surface. The W5 wingman_ai.lua called order_move_to_settlement,
+    -- force_recruit_unit, construct_building, queue_building_for_faction —
+    -- none of those exist in TWW3. The smoke gate must stub REAL APIs so
+    -- a future regression toward those phantom names surfaces here, not
+    -- at runtime in the game.
+    move_to = function(self, cs, x, y) return true end,
+    move_to_queued = function(self, cs, x, y) return true end,
+    join_garrison = function(self, cs, sk) return true end,
+    leave_garrison = function(self, cs, x, y) return true end,
+    attack = function(self, cs_a, cs_b, lay_siege, ignore_shroud) return true end,
+    attack_queued = function(self, cs_target, lay_siege) return true end,
+    attack_region = function(self, cs, rk) return true end,
+    grant_unit_to_character = function(self, cs, uk) return true end,
+    add_building_to_settlement = function(self, rk, bk, ok_out) return true end,
+    add_building_to_settlement_queue = function(self, slot, bk) return true end,
+    instantly_upgrade_building_in_region = function(self, slot, bk) return true end,
+    instantly_research_all_technologies = function(self, fk) return true end,
+    perform_ritual = function(self, fk, target, rk) return true end,
+    force_declare_war = function(self, a, d, ia, id) return true end,
+    force_make_peace = function(self, a, b) return true end,
+    force_alliance = function(self, a, b, mil) return true end,
+    force_make_trade_agreement = function(self, a, b) return true end,
+    force_make_vassal = function(self, master, vassal) return true end,
+    force_confederation = function(self, proposer, target) return true end,
+    force_grant_military_access = function(self, a, b, is_hard) return true end,
+    force_diplomacy = function(self, src, tgt, action, c1, c2, c3, c4) return true end,
+    faction_offers_peace_to_other_faction = function(self, a, b) return true end,
+    make_diplomacy_available = function(self, a, b) return true end,
+    disable_movement_for_character = function(self, cs) return true end,
+    enable_movement_for_character = function(self, cs) return true end,
+    force_character_force_into_stance = function(self, cs, stance) return true end,
+    cancel_actions_for = function(self, cs) return true end,
+    heal_military_force = function(self, force) return true end,
+    replenish_action_points = function(self, cs) return true end,
+    stop_character_convalescing = function(self, cqi) return true end,
+    add_agent_experience = function(self, cs, amt, reason) return true end,
+    force_add_trait = function(self, cs, trait, silent) return true end,
+    add_skill = function(self, character, skill, ignore_req) return true end,
+    embed_agent_in_force = function(self, agent, force) return true end,
+    transfer_region_to_faction = function(self, rk, fk) return true end,
+    set_region_abandoned = function(self, rk) return true end,
+    kill_character = function(self, cs, destroy) return true end,
+    wound_character = function(self, cs, convalescence) return true end,
+    treasury_mod = function(self, fk, amount) return true end,
+    faction_add_pooled_resource = function(self, fk, resource_key, amount, factor) return true end,
+
+    -- W6: CAI personality rewrite (Option B). Sets a script context that
+    -- changes the engine's AI-evaluation heuristics for a faction. Values
+    -- from chadvandy episodic_scripting docs: DEFAULT, ALPHA, BETA, GAMMA,
+    -- DELTA, EPSILON, ZETA. We use ALPHA for "highest-skill".
+    cai_set_faction_script_context = function(self, fk, value) return true end,
+    cai_get_faction_script_context = function(self, fk) return "DEFAULT" end,
+    cai_clear_faction_script_context = function(self, fk) return true end,
+    cai_set_global_script_context = function(self, value) return true end,
+    cai_get_global_script_context = function(self) return "DEFAULT" end,
+    cai_clear_global_script_context = function(self) return true end,
+    cai_force_personality_change = function(self, fk, personality) return true end,
+    get_region = function(self, rk)
+        return {
+            settlement = function(self)
+                return {
+                    logical_position_x = function(self) return 0 end,
+                    logical_position_y = function(self) return 0 end,
+                }
+            end,
+        }
+    end,
 }
 
 _G.core = {
@@ -207,7 +275,7 @@ def main() -> int:
             return 1
 
     print("---")
-    print("--- W5 AI controller ---")
+    print("--- W5/W6 AI controller ---")
     for fn in POST_BOOTSTRAP_AI_CALLS:
         try:
             result = lua.eval(f"pcall({fn})")
@@ -232,6 +300,46 @@ def main() -> int:
                 print(f"FAIL {fn}: expected number return, got {type(val).__name__} ({val!r})")
                 return 1
             print(f"OK   {fn} (returned {val})")
+        elif fn.endswith("_w6_dispatched_steps"):
+            # Should return a Lua table of step_* names. lupa returns Lua
+            # tables; iterating via list() yields the KEYS (indices), so
+            # we use values() instead.
+            val = None
+            if isinstance(result, tuple) and len(result) >= 2:
+                val = result[1]
+            elif not isinstance(result, bool):
+                val = result
+            if val is None:
+                print(f"FAIL {fn}: returned nil")
+                return 1
+            try:
+                # Prefer values() (returns LuaString entries); fall back
+                # to indexing manually if values() isn't available.
+                if hasattr(val, "values"):
+                    step_list = list(val.values())
+                else:
+                    n = len(val)
+                    step_list = [val[i] for i in range(1, n + 1)]
+            except TypeError as e:
+                print(f"FAIL {fn}: returned non-iterable {type(val).__name__}: {e}")
+                return 1
+            step_names = [str(s) for s in step_list]
+            expected_steps = (
+                "step_apply_cai_personality",
+                "step_attack_adjacent",
+                "step_garrison_defensives",
+                "step_instantly_research",
+                "step_perform_rites",
+                "step_diplomacy",
+                "step_construct_buildings",
+                "step_discover_and_recruit",
+                "step_move_armies",
+            )
+            missing = [s for s in expected_steps if s not in step_names]
+            if missing:
+                print(f"FAIL {fn}: missing step(s) {missing!r} in dispatched list {step_names!r}")
+                return 1
+            print(f"OK   {fn} (returned {len(step_names)} steps; all W6 steps present)")
         else:
             print(f"OK   {fn}")
 
