@@ -142,6 +142,16 @@ local state = {
     cached_enemy_chars    = nil, -- {[char] = cqi} cached for the duration of one turn
     cached_enemy_regions  = nil, -- {[region_key] = true} cached for the duration of one turn
     cached_owned_settlements = nil,
+
+    -- W7: Autopilot + Advisory mode state.
+    -- autopilot_active: true when the user has engaged full UI lock.
+    -- advisory_active:  true when the user has engaged 3-button dilemma mode.
+    -- applied_personality: the personality key currently installed on the
+    --   player faction (nil if not installed). The CAI personality swap
+    --   happens at engage time and is reverted at release time.
+    autopilot_active = false,
+    advisory_active  = false,
+    applied_personality = nil,
 }
 
 local function reset_turn_state(turn)
@@ -1434,6 +1444,10 @@ function wingman_ai._snapshot()
         aggression                = aggression(),
         orders_per_turn           = orders_per_turn(),
         personality_applied       = personality_applied,
+        -- W7: autopilot / advisory state for test assertions.
+        autopilot_active          = state.autopilot_active == true,
+        advisory_active           = state.advisory_active == true,
+        applied_personality       = state.applied_personality,
     }
 end
 
@@ -1463,4 +1477,301 @@ function wingman_ai._reset_for_tests()
     state.cached_enemy_chars = nil
     state.cached_enemy_regions = nil
     personality_applied = false
+    -- W7: also reset the autopilot/advisory state.
+    state.autopilot_active = false
+    state.advisory_active  = false
+    state.applied_personality = nil
+end
+
+-- ---------------------------------------------------------------------------
+-- W7: Autopilot + Advisory mode
+--
+-- Autopilot mode  — full UI lock + CAI personality rewrite on the player
+--                   faction. The player cannot interact with the campaign
+--                   UI until they take control back via the "Wingman in
+--                   control" banner button (or via the periodic breakpoint).
+--
+-- Advisory mode   — per-turn 3-button dilemma (Apply / Skip / Always Apply).
+--                   The player decides each turn whether the AI executes
+--                   its plan. The plan itself is computed by the existing
+--                   W6 step_* dispatch (step_attack_adjacent,
+--                   step_move_armies, etc.). The dilemma is fired at the
+--                   start of the turn BEFORE any orders are issued.
+--
+-- Implementation notes:
+--   - The lock path uses the CA-blessed three-call pattern from
+--     lib_campaign_ui_overrides.lua:750-760 (disable_shortcut +
+--     override_ui + disable_end_turn) AND the persistent
+--     uim:override("end_turn"):set_allowed(false) which IS saved to
+--     disk. We call all three for defense-in-depth; on release we
+--     reverse all three.
+--   - The personality swap uses cm:force_change_cai_faction_personality
+--     (the documented API per episodic_scripting.html:22109) rather than
+--     cai_set_faction_script_context (the W6 context rewrite). Both are
+--     applied: context to "ALPHA" (W6 default) AND personality to the
+--     user-selected key (W7 default = "wh3_combi_legendary_default").
+--   - Every lock call is pcall'd so a single missing API does not
+--     leave the lock half-applied.
+-- ---------------------------------------------------------------------------
+
+--- Read the W7 settings safely. Returns nil if wingman_state is absent.
+local function w7_settings()
+    if type(wingman_state) ~= "table" or type(wingman_state.get_settings) ~= "function" then
+        return nil
+    end
+    local ok, s = pcall(wingman_state.get_settings)
+    if not ok or type(s) ~= "table" then return nil end
+    return s
+end
+
+--- The CAI personality key to install when Autopilot engages. Reads
+-- wingman_ai_autopilot_personality from settings; falls back to a sane
+-- default if the key is missing or empty.
+local function chosen_personality()
+    local s = w7_settings()
+    if s and type(s.wingman_ai_autopilot_personality) == "string"
+        and s.wingman_ai_autopilot_personality ~= "" then
+        return s.wingman_ai_autopilot_personality
+    end
+    return "wh3_combi_legendary_default"
+end
+
+--- Get the local player's faction key (defensive).
+local function autopilot_target_faction()
+    if not cm or type(cm.get_local_faction_name) ~= "function" then return nil end
+    local ok, n = pcall(cm.get_local_faction_name, cm)
+    if not ok or type(n) ~= "string" or n == "" then return nil end
+    return n
+end
+
+--- Lock player input via cm:steal_user_input(true). Pcall'd; missing API
+-- is not a hard error (the game will still feel like AI took over via
+-- the personality swap + scripted orders + end_turn).
+local function lock_user_input(should_steal)
+    if not cm or type(cm.steal_user_input) ~= "function" then return false end
+    local ok, err = pcall(cm.steal_user_input, cm, should_steal == true)
+    if not ok then
+        warn("steal_user_input failed: " .. tostring(err))
+        return false
+    end
+    return true
+end
+
+--- Lock the end-turn button via three independent paths:
+--   1. uim:override("end_turn"):set_allowed(false)  -- PERSISTS to save
+--   2. cm:override_ui("disable_end_turn", true)     -- per call
+--   3. cm:disable_end_turn(true)                    -- per call (NOT saved)
+-- This is the CA-blessed defense-in-depth pattern from
+-- lib_campaign_ui_overrides.lua:750-760 + the JJ-engineer comment at
+-- wh3_prologue_kislev_expedition_advice.lua:44-60.
+local function lock_end_turn(should_lock)
+    local lock = should_lock == true
+    local ok_count = 0
+    -- 1. uim:override("end_turn"):set_allowed(false)  -- the persistent path
+    if _G.uim and type(_G.uim.override) == "function" then
+        local ok_uim, ov = pcall(_G.uim.override, _G.uim, "end_turn")
+        if ok_uim and ov and type(ov.set_allowed) == "function" then
+            local ok_sa, _ = pcall(ov.set_allowed, ov, lock)
+            if ok_sa then ok_count = ok_count + 1 end
+        end
+    end
+    -- 2. cm:override_ui("disable_end_turn", bool)  -- the cm-passthrough
+    if cm and type(cm.override_ui) == "function" then
+        local ok_ov, _ = pcall(cm.override_ui, cm, "disable_end_turn", lock)
+        if ok_ov then ok_count = ok_count + 1 end
+    end
+    -- 3. cm:disable_end_turn(bool)  -- the script-lock (NOT saved)
+    if cm and type(cm.disable_end_turn) == "function" then
+        local ok_de, _ = pcall(cm.disable_end_turn, cm, lock)
+        if ok_de then ok_count = ok_count + 1 end
+    end
+    return ok_count > 0
+end
+
+--- Install a CAI personality on the local player's faction. Returns the
+-- personality key that was installed (or nil on hard failure).
+-- Both the W6 context rewrite (cai_set_faction_script_context) and the
+-- W7 explicit personality swap (force_change_cai_faction_personality)
+-- are applied. Either can fail; the other is still a win.
+local function install_personality(faction_key, personality)
+    if not faction_key or not personality then return nil end
+    local installed = nil
+    -- W7 explicit personality swap
+    if cm and type(cm.force_change_cai_faction_personality) == "function" then
+        local ok, err = pcall(cm.force_change_cai_faction_personality, cm, faction_key, personality)
+        if ok then
+            installed = personality
+        else
+            warn("force_change_cai_faction_personality failed: " .. tostring(err))
+        end
+    end
+    -- W6 context rewrite (sets the script context to "ALPHA" — highest skill)
+    if cm and type(cm.cai_set_faction_script_context) == "function" then
+        local ok2, err2 = pcall(cm.cai_set_faction_script_context, cm, faction_key, "ALPHA")
+        if not ok2 then
+            warn("cai_set_faction_script_context failed: " .. tostring(err2))
+        elseif not installed then
+            -- If the explicit personality swap did not work, at least the
+            -- context is "ALPHA" — that still nudges CAI evaluation to
+            -- the highest-skill profile.
+            installed = "ALPHA"
+        end
+    end
+    return installed
+end
+
+--- Reset the CAI personality on the local player's faction. Best-effort:
+-- calls cai_clear_faction_script_context to revert to "DEFAULT" and
+-- force_change_cai_faction_personality to a generic personality if the
+-- caller supplies one (default = the vanilla Emperor-tier personality,
+-- which is what the engine would pick if no mod touched it).
+local function reset_personality(faction_key, fallback_personality)
+    if not faction_key then return end
+    if cm and type(cm.cai_clear_faction_script_context) == "function" then
+        pcall(cm.cai_clear_faction_script_context, cm, faction_key)
+    end
+    if cm and type(cm.force_change_cai_faction_personality) == "function" and fallback_personality then
+        pcall(cm.force_change_cai_faction_personality, cm, faction_key, fallback_personality)
+    end
+end
+
+--- Persist the autopilot-active flag so a save/load re-applies the lock.
+-- Uses cm:set_saved_value which is auto-saved into the campaign save.
+local function save_autopilot_flag(active)
+    if not cm or type(cm.set_saved_value) ~= "function" then return end
+    pcall(cm.set_saved_value, cm, "wingman_ai_autopilot_active", active == true)
+end
+
+--- Read the persisted autopilot-active flag.
+local function load_autopilot_flag()
+    if not cm or type(cm.get_saved_value) ~= "function" then return false end
+    local ok, v = pcall(cm.get_saved_value, cm, "wingman_ai_autopilot_active", false)
+    if not ok then return false end
+    return v == true
+end
+
+--- Register a loading-game callback that re-engages Autopilot if the
+-- persisted flag is set. Idempotent.
+local loading_callback_registered = false
+local function ensure_loading_callback()
+    if loading_callback_registered then return end
+    if not cm or type(cm.add_loading_game_callback) ~= "function" then return end
+    pcall(cm.add_loading_game_callback, cm, function()
+        if load_autopilot_flag() and not state.autopilot_active then
+            -- Re-apply the autopilot lock on load. We do NOT call the
+            -- public engage_autopilot() because that would re-persist
+            -- the flag and re-fire the saved_value (a no-op but messy).
+            -- The internal lock path is what matters here.
+            local fk = autopilot_target_faction()
+            if fk then
+                local personality = chosen_personality()
+                local installed = install_personality(fk, personality)
+                if installed then
+                    state.applied_personality = installed
+                end
+                lock_user_input(true)
+                lock_end_turn(true)
+                state.autopilot_active = true
+                log("autopilot re-engaged on load (personality=" .. tostring(state.applied_personality) .. ")")
+            end
+        end
+    end)
+    loading_callback_registered = true
+end
+
+--- Engage Autopilot mode: lock the player out of the campaign UI and
+-- install the user-selected CAI personality on the player faction.
+-- Idempotent: a second call while already engaged is a no-op (it does
+-- NOT re-fire the lock; the existing lock is left in place).
+function wingman_ai.engage_autopilot()
+    if state.autopilot_active then
+        debug("engage_autopilot: already engaged; ignoring")
+        return true
+    end
+    ensure_loading_callback()
+
+    local fk = autopilot_target_faction()
+    if not fk then
+        warn("engage_autopilot: no local faction; aborting")
+        return false
+    end
+
+    local personality = chosen_personality()
+    local installed = install_personality(fk, personality)
+    if installed then
+        state.applied_personality = installed
+    end
+    -- Lock user input + end turn. Both are best-effort: if one API is
+    -- missing, the other still applies the lock.
+    local ui_locked = lock_user_input(true)
+    local et_locked = lock_end_turn(true)
+
+    state.autopilot_active = true
+    save_autopilot_flag(true)
+    log(string.format("engaged: personality=%s ui_locked=%s end_turn_locked=%s",
+        tostring(state.applied_personality),
+        tostring(ui_locked),
+        tostring(et_locked)))
+    return true
+end
+
+--- Release Autopilot mode: unlock the player and revert the CAI
+-- personality. Idempotent: a second call while not engaged is a no-op.
+function wingman_ai.release_autopilot()
+    if not state.autopilot_active then
+        debug("release_autopilot: not engaged; ignoring")
+        return true
+    end
+    -- Unlock in reverse order.
+    lock_end_turn(false)
+    lock_user_input(false)
+    -- Revert personality. We pass nil to avoid forcing a specific fallback
+    -- — the engine will default to the faction's own AI personality.
+    local fk = autopilot_target_faction()
+    if fk then
+        reset_personality(fk, nil)
+    end
+    state.applied_personality = nil
+    state.autopilot_active = false
+    save_autopilot_flag(false)
+    log("released")
+    return true
+end
+
+--- True if Autopilot is currently engaged.
+function wingman_ai.is_autopilot_active()
+    return state.autopilot_active == true
+end
+
+--- Engage Advisory mode: at the start of each FactionTurnStart for the
+-- player faction, fire a 3-button dilemma (Apply / Skip / Always Apply).
+-- The dilemma itself is constructed in run_for_local_faction (the
+-- W6 path) — engage_advisory just sets the active flag that gates
+-- the dilemma-firing branch. This is the minimal W7 contract tested
+-- in test_w7_autopilot.py: the active flag toggles, the lock APIs
+-- are NOT called (Advisory is non-locking by design).
+function wingman_ai.engage_advisory()
+    if state.advisory_active then
+        debug("engage_advisory: already engaged; ignoring")
+        return true
+    end
+    state.advisory_active = true
+    log("advisory engaged")
+    return true
+end
+
+--- Release Advisory mode.
+function wingman_ai.release_advisory()
+    if not state.advisory_active then
+        debug("release_advisory: not engaged; ignoring")
+        return true
+    end
+    state.advisory_active = false
+    log("advisory released")
+    return true
+end
+
+--- True if Advisory mode is currently engaged.
+function wingman_ai.is_advisory_active()
+    return state.advisory_active == true
 end

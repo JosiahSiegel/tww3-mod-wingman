@@ -105,6 +105,29 @@ local DEFAULTS = {
     wingman_ai_diplomacy_per_turn         = 2,
     wingman_ai_research_enabled           = true,
     wingman_ai_rituals_enabled            = true,
+
+    -- AI Controller (W7) — Autopilot + Advisory modes.
+    -- Autopilot mode = full UI lock + CAI personality rewrite + scripted
+    -- orders. The player is locked out of the campaign UI until they take
+    -- back control via the "Wingman in control" banner button (or via the
+    -- periodic breakpoint). Advisory mode = per-turn 3-button dilemma;
+    -- player decides whether the AI executes the plan each turn.
+    --   - wingman_ai_mode: "off" (W6 behavior), "advisory", "autopilot"
+    --   - wingman_ai_autopilot_personality: CAI personality key installed
+    --     on the player faction when Autopilot engages. Default = same as
+    --     the highest-skill "ALPHA" context for broad compatibility. Users
+    --     can pick a faction-specific famous personality (e.g.
+    --     "wh3_combi_empire_franz_endgame") for a more aggressive setup.
+    --   - wingman_ai_takeback_hotkey: "esc" (default) or "none". The user
+    --     can take back control by holding ESC for 3 seconds (engine
+    --     pattern, see cm:steal_escape_key_with_callback in vanilla).
+    --   - wingman_ai_advisory_dilemma_key: dilemma key from the mod's
+    --     db/dilemma_tables row, used to fire the 3-button prompt. The
+    --     default placeholder is overridden in the production mod.
+    wingman_ai_mode                      = "off",
+    wingman_ai_autopilot_personality     = "wh3_combi_legendary_default",
+    wingman_ai_takeback_hotkey           = "esc",
+    wingman_ai_advisory_dilemma_key      = "wingman_advisory_default",
 }
 
 -- Allowed values for enum-like settings. Unknown values revert to the default.
@@ -423,6 +446,29 @@ local function validate_settings(input)
         if type(v) ~= "string" or not allowed[v] then
             warn("enum " .. tostring(k) .. " has invalid value '" .. tostring(v) .. "', using default")
             out_settings[k] = DEFAULTS[k]
+        end
+    end
+
+    -- W7 string-allowlist. wingman_ai_mode is an enum-like setting that is
+    -- not in ALLOWED_ENUMS because it is only valid after the W7 code is
+    -- loaded; older save files may have nil here. Force-validate it.
+    do
+        local v = out_settings.wingman_ai_mode
+        if type(v) ~= "string" or not (v == "off" or v == "advisory" or v == "autopilot") then
+            out_settings.wingman_ai_mode = DEFAULTS.wingman_ai_mode
+        end
+    end
+
+    -- W7 string keys (personality / hotkey / dilemma_key) — accept any
+    -- non-empty string of reasonable length; revert to default otherwise.
+    for _, key in ipairs({
+        "wingman_ai_autopilot_personality",
+        "wingman_ai_takeback_hotkey",
+        "wingman_ai_advisory_dilemma_key",
+    }) do
+        local v = out_settings[key]
+        if type(v) ~= "string" or v == "" or #v > 256 then
+            out_settings[key] = DEFAULTS[key]
         end
     end
 

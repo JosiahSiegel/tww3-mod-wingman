@@ -151,6 +151,33 @@ _G.cm = {
     cai_get_global_script_context = function(self) return "DEFAULT" end,
     cai_clear_global_script_context = function(self) return true end,
     cai_force_personality_change = function(self, fk, personality) return true end,
+    -- W7: explicit per-faction CAI personality swap (replaces the
+    -- personality context with a database-defined personality key).
+    -- Real API per episodic_scripting.html:22109.
+    force_change_cai_faction_personality = function(self, fk, personality) return true end,
+    -- W7: player input + turn-button locks for Autopilot mode.
+    -- Per episodic_scripting.html:2462 (steal_user_input), :2272
+    -- (disable_end_turn), :2495 (steal_escape_key).
+    steal_user_input      = function(self, b) return true end,
+    steal_escape_key      = function(self, b) return true end,
+    disable_end_turn      = function(self, b) return true end,
+    override_ui           = function(self, key, b) return true end,
+    -- W7: Advisory mode 3-button dilemma. Per the mc_peg_street_pawnshop
+    -- vanilla pattern (3 payloads, FIRST/SECOND/THIRD), used by Advisory
+    -- mode to ask the player "Apply / Skip / Always Apply?" per turn.
+    create_dilemma_builder = function(self, key)
+        return {
+            add_choice_payload = function(self, choice, payload) return self end,
+        }
+    end,
+    launch_custom_dilemma_from_builder = function(self, builder, faction) return true end,
+    show_message_event_located = function(self, fk, t, p, d, x, y, persist, idx) return true end,
+    -- W7: save/load round-trip used to re-apply autopilot lock on load.
+    set_saved_value = function(self, k, v) return true end,
+    get_saved_value = function(self, k, default) return default end,
+    add_loading_game_callback = function(self, cb) return true end,
+    add_saving_game_callback  = function(self, cb) return true end,
+    callback                  = function(self, cb, delay) return true end,
     get_region = function(self, rk)
         return {
             settlement = function(self)
@@ -159,6 +186,23 @@ _G.cm = {
                     logical_position_y = function(self) return 0 end,
                 }
             end,
+        }
+    end,
+}
+
+-- W7: global uim accessor. Per campaign_ui_manager.html:1078 the real API
+-- is `cm:get_campaign_ui_manager():override(name):set_allowed(bool)`. The
+-- W7 production code uses both `uim:override("end_turn"):set_allowed(false)`
+-- (the direct global shortcut) and `cm:override_ui("disable_end_turn", true)`
+-- (the cm: passthrough). The smoke stub provides _G.uim because
+-- lib_campaign_manager.lua defines `uim = cm:get_campaign_ui_manager()` at
+-- runtime; in the test we expose it directly.
+_G.uim = {
+    override = function(self, name)
+        return {
+            set_allowed = function(self, b) return true end,
+            lock        = function(self) return true end,
+            unlock      = function(self) return true end,
         }
     end,
 }
