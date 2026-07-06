@@ -26,24 +26,28 @@ The script validates the PFH5 magic on the output.
 
 ### 2. Install Locally
 
+Replace `<TWW3>` with your actual install path. The default Steam install is `C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III`; if you installed Steam to another drive, the path is `<that drive>:\SteamLibrary\steamapps\common\Total War WARHAMMER III`. To find yours: right-click TWW3 in your Steam library → Manage → Browse local files — the path opens to the TWW3 root.
+
 **PowerShell**:
 
 ```powershell
-Copy-Item "dist\!wingman.pack" "C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III\data\!wingman.pack" -Force
-Copy-Item "dist\!wingman.png"  "C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III\data\!wingman.png"  -Force
+$TWW3 = "C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III"   # adjust if needed
+Copy-Item "dist\!wingman.pack" "$TWW3\data\!wingman.pack" -Force
+Copy-Item "dist\!wingman.png"  "$TWW3\data\!wingman.png"  -Force
 ```
 
 **Bash**:
 
 ```bash
-cp dist/'!wingman.pack' dist/'!wingman.png' \
-   "/c/Program Files (x86)/Steam/steamapps/common/Total War WARHAMMER III/data/"
+TWW3="/c/Program Files (x86)/Steam/steamapps/common/Total War WARHAMMER III"   # adjust if needed
+cp dist/'!wingman.pack' dist/'!wingman.png' "$TWW3/data/"
 ```
 
 ### 3. Enable Script Logging (one-time)
 
 ```powershell
-New-Item -ItemType File -Path "C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III\data\script\enable_console_logging" -Force
+$TWW3 = "C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III"   # same as step 2
+New-Item -ItemType File -Path "$TWW3\data\script\enable_console_logging" -Force
 ```
 
 That empty file (no extension) makes `out("[Wingman] ...")` lines visible in `script_log_*.txt`.

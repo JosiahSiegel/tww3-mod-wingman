@@ -66,17 +66,23 @@ def build_file_index(entries: list[tuple[str, int, int]]) -> bytes:
     entries: list of (in_pack_path, size_on_disk, timestamp) — one per file.
     Returns the raw index bytes (NOT length-prefixed; the caller computes size).
 
-    Per the spec each entry is:
+    Per the PFH5 spec each entry is:
         u32 data_size    little-endian
-        u32 timestamp    little-endian (optional based on header bitmask; we
-                         always include it for forward-compat with TW:WH3 which
-                         reads the timestamp even when the bitmask says otherwise)
+        u32 timestamp    little-endian (ONLY present when header bitmask
+                         HAS_INDEX_WITH_TIMESTAMPS = 0x10 is set in the
+                         Type+Bitmask byte)
         path\0           UTF-8, NUL-terminated
+
+    We DO NOT write timestamps. Writing them without setting the 0x10 bit
+    corrupts the file index: the engine reads 4 extra bytes (the timestamp)
+    as part of the path-length field (psize), producing garbage values
+    (~1.7GB) and causing the engine to reject the entire pack silently.
+    W7+ users reported exactly this: the mod was enabled in the launcher
+    but no Lua files ever loaded.
     """
     buf = bytearray()
-    for path, size, ts in entries:
-        buf += struct.pack("<I", size)        # data size
-        buf += struct.pack("<I", ts)          # timestamp
+    for path, size, _ts in entries:
+        buf += struct.pack("<I", size)        # data size (no timestamp)
         buf += path.encode("utf-8") + b"\x00"
     return bytes(buf)
 

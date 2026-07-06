@@ -15,8 +15,10 @@ python scripts/lupa_smoke.py
 # 2. Rebuild the pack
 python scripts/build_pack.py
 
-# 3. Copy into TWW3
-Copy-Item "dist\!wingman.pack" "C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III\data\!wingman.pack" -Force
+# 3. Copy into TWW3 (replace the path with your actual install)
+$TWW3 = "C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III"   # adjust if needed
+Copy-Item "dist\!wingman.pack" "$TWW3\data\!wingman.pack" -Force
+Copy-Item "dist\!wingman.png"  "$TWW3\data\!wingman.png"  -Force
 
 # 4. Launch TWW3 (original launcher, NOT EA Mod Manager)
 # 5. Mod Manager: tick MCT + Wingman → Play
@@ -55,9 +57,12 @@ Output: `dist/!wingman.pack` (~370 KB) and `dist/!wingman.png`. The script valid
 
 ## Step 2: Install to TWW3
 
+Replace `<TWW3>` with your actual install path. Default Steam is `C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III`; if you installed Steam to another drive, the path is `<that drive>:\SteamLibrary\steamapps\common\Total War WARHAMMER III`. To find yours: right-click TWW3 in Steam library → Manage → Browse local files.
+
 ```powershell
-Copy-Item "dist\!wingman.pack" "C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III\data\!wingman.pack" -Force
-Copy-Item "dist\!wingman.png"  "C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III\data\!wingman.png"  -Force
+$TWW3 = "C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III"   # adjust if needed
+Copy-Item "dist\!wingman.pack" "$TWW3\data\!wingman.pack" -Force
+Copy-Item "dist\!wingman.png"  "$TWW3\data\!wingman.png"  -Force
 ```
 
 The filename MUST match the `.pack` base name exactly (case-sensitive, no extra characters).
@@ -67,7 +72,8 @@ The filename MUST match the `.pack` base name exactly (case-sensitive, no extra 
 ## Step 3: Enable script logging (one-time)
 
 ```powershell
-New-Item -ItemType File -Path "C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III\data\script\enable_console_logging" -Force
+$TWW3 = "C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III"   # same as step 2
+New-Item -ItemType File -Path "$TWW3\data\script\enable_console_logging" -Force
 ```
 
 That empty file (no extension) is the trigger. From now on, every `out("[Wingman] ...")` line is written to `script_log_*.txt` in the game folder.
