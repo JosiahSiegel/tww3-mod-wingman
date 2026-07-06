@@ -26,11 +26,14 @@ else:
 
 
 # Module load order matters: each later file depends on the previous.
+# wingman_ai.lua (W5) comes before wingman_init because init registers the
+# AI listener alongside the rest.
 SOURCE_FILES = (
     "script/campaign/mod/wingman_state.lua",
     "script/campaign/mod/wingman_safety.lua",
     "script/campaign/mod/wingman_missions.lua",
     "script/campaign/mod/wingman_rules.lua",
+    "script/campaign/mod/wingman_ai.lua",
     "script/campaign/mod/wingman_campaign.lua",
     "script/campaign/mod/wingman_battle.lua",
     "script/campaign/mod/wingman_init.lua",
@@ -43,6 +46,17 @@ BOOTSTRAP_FUNCTIONS = (
     "wingman.register_listeners",
     "wingman.shutdown",
     "wingman.try_recover_from_error_safe",
+)
+
+# W5 AI Controller: after load + bootstrap, these calls must complete without
+# raising. They exercise the AI safe-order path so any syntax/range bug fails
+# the smoke gate.
+POST_BOOTSTRAP_AI_CALLS = (
+    # Returns a snapshot table; truthy.
+    "wingman_ai._snapshot",
+    # run_for_local_faction must return a number (orders count) without
+    # throwing. The stubbed engine has no army list, so it should return 0.
+    "wingman_ai.run_for_local_faction",
 )
 
 
@@ -64,6 +78,21 @@ _G.cm = {
     get_local_faction_name = function(self) return "wh_main_emp_empire" end,
     turn_number = function(self) return 1 end,
     add_first_tick_callback = function(self, cb) return true end,
+    -- W5: AI controller stubs — no regions / no characters, so run_for
+    -- should bail early and return 0.
+    query_model = function(self)
+        return {
+            region_list  = function() return { num_items = function(self) return 0 end, item_at = function(self, i) return nil end } end,
+            faction_list = function() return { num_items = function(self) return 0 end, item_at = function(self, i) return nil end } end,
+        }
+    end,
+    get_faction = function(self, name) return nil end,
+    char_lookup_str = function(self, cqi) return nil end,
+    order_move_to_settlement = function(self, cs, rk) return true end,
+    force_recruit_unit = function(self, sk, uk, fk) return true end,
+    construct_building = function(self, sk, fk, slot) return true end,
+    queue_building_for_faction = function(self, sk, fk, slot) return true end,
+    end_turn = function(self) return true end,
 }
 
 _G.core = {
@@ -176,6 +205,35 @@ def main() -> int:
             if last_err:
                 print(f"        {last_err}", file=sys.stderr)
             return 1
+
+    print("---")
+    print("--- W5 AI controller ---")
+    for fn in POST_BOOTSTRAP_AI_CALLS:
+        try:
+            result = lua.eval(f"pcall({fn})")
+        except Exception as exc:  # noqa: BLE001
+            print(f"FAIL {fn}: {exc!r}")
+            return 1
+        if not _pcall_ok(result):
+            err = ""
+            if isinstance(result, tuple) and len(result) >= 2:
+                err = repr(result[1])
+            print(f"FAIL {fn}: {err}")
+            return 1
+        # For run_for_local_faction, ensure the returned value is a number
+        # (so we exercise the "0 orders on empty engine" path).
+        if fn.endswith("run_for_local_faction"):
+            val = None
+            if isinstance(result, tuple) and len(result) >= 2:
+                val = result[1]
+            elif not isinstance(result, bool):
+                val = result
+            if not isinstance(val, int):
+                print(f"FAIL {fn}: expected number return, got {type(val).__name__} ({val!r})")
+                return 1
+            print(f"OK   {fn} (returned {val})")
+        else:
+            print(f"OK   {fn}")
 
     print("---")
     print("ALL CHECKS PASS")

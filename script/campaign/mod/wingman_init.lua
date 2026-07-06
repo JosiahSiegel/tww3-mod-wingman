@@ -233,7 +233,15 @@ function wingman.register_listeners()
         track_listener("wingman_missions_listeners")
     end
 
-    -- Campaign listeners LAST (so it can use the registered safety/battle/missions)
+    -- AI controller listener (FactionTurnStart). MUST come before campaign
+    -- so the AI's order spending happens in the same tick as the end-turn
+    -- driver — engine will queue the orders first, then run end_turn right
+    -- after, so the orders commit before the next faction's turn.
+    if wingman_safety.safe_call("register_ai", wingman_ai.register_listeners) then
+        track_listener("wingman_ai_listeners")
+    end
+
+    -- Campaign listeners LAST (so it can use the registered safety/battle/missions/AI)
     if wingman_safety.safe_call("register_campaign", wingman_campaign.register_listeners) then
         track_listener("wingman_campaign_listeners")
     end
@@ -278,6 +286,9 @@ function wingman.shutdown(reason)
     -- Each call goes through safe_call so one failing module can't break the rest.
     if wingman_campaign and type(wingman_campaign.unregister_listeners) == "function" then
         wingman_safety.safe_call("unregister_campaign", wingman_campaign.unregister_listeners)
+    end
+    if wingman_ai and type(wingman_ai.unregister_listeners) == "function" then
+        wingman_safety.safe_call("unregister_ai", wingman_ai.unregister_listeners)
     end
     if wingman_missions and type(wingman_missions.unregister_listeners) == "function" then
         wingman_safety.safe_call("unregister_missions", wingman_missions.unregister_listeners)

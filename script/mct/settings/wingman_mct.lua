@@ -53,6 +53,10 @@ if not mct then
                 wingman_required_defeated_factions_csv = "",
                 wingman_faction_restrictions_enabled = false,
                 wingman_restriction_violation_action = "warn_pause",
+                -- AI Controller (W5)
+                wingman_ai_enabled                  = true,
+                wingman_ai_aggression               = "aggressive",
+                wingman_ai_orders_per_turn          = 12,
             }
         end,
         read_settings = function() return wingman_mct.get_default_settings() end,
@@ -99,6 +103,10 @@ local DEFAULT_SETTINGS = {
     wingman_required_defeated_factions_csv = "",
     wingman_faction_restrictions_enabled = false,
     wingman_restriction_violation_action = "warn_pause",
+    -- AI Controller (W5)
+    wingman_ai_enabled                  = true,
+    wingman_ai_aggression               = "aggressive",
+    wingman_ai_orders_per_turn          = 12,
 }
 
 -- Slider (min, max, step, default) — must match DEFAULT_SETTINGS
@@ -107,6 +115,7 @@ local SLIDER_RANGES = {
     wingman_periodic_break_interval     = {min = 0,  max = 100,  step = 1, default = 10},
     wingman_autoresolve_threshold       = {min = 0,  max = 100,  step = 1, default = 60},
     wingman_turn_cap_value              = {min = 1,  max = 500,  step = 1, default = 50},
+    wingman_ai_orders_per_turn          = {min = 1,  max = 50,   step = 1, default = 12},
 }
 
 -- Dropdown option tables — keys are short, display is co-pilot-friendly
@@ -134,6 +143,11 @@ local DROPDOWN_OPTIONS = {
     wingman_restriction_violation_action = {
         {key = "warn_pause",   text = "Warn + pause — alert and stop"},
         {key = "pause_disable",text = "Pause + disable — turn Wingman off"},
+    },
+    wingman_ai_aggression = {
+        {key = "defensive",  text = "Defensive — guard and consolidate"},
+        {key = "balanced",   text = "Balanced — react to threats"},
+        {key = "aggressive", text = "Aggressive — attack everything (default)"},
     },
 }
 
@@ -293,6 +307,29 @@ do
     opt:set_text("Break on pending battle")
     opt:set_tooltip_text("Pause when a battle needs your decision.")
     opt:set_default_value(DEFAULT_SETTINGS.wingman_break_on_pending_battle)
+    opt:set_assigned_section("wingman_section_campaign")
+
+    local opt = wingman_mod:add_new_option("wingman_ai_enabled", "checkbox")
+    opt:set_text("AI controls your faction")
+    opt:set_tooltip_text("When I'm in the cockpit, I actively move your armies, queue buildings, recruit, and attack — using scripted orders on your own faction (highest-skill-attitude by default). Disabled = I still hand the turn back, but I won't move anything for you.")
+    opt:set_default_value(DEFAULT_SETTINGS.wingman_ai_enabled)
+    opt:set_assigned_section("wingman_section_campaign")
+
+    local opt = wingman_mod:add_new_option("wingman_ai_aggression", "dropdown")
+    opt:set_text("AI aggression")
+    opt:set_tooltip_text("How aggressive should your AI faction play? Defensive consolidates; balanced reacts; aggressive attacks every enemy it can see.")
+    opt:set_default_value(DEFAULT_SETTINGS.wingman_ai_aggression)
+    opt:add_dropdown_values(DROPDOWN_OPTIONS.wingman_ai_aggression)
+    opt:set_assigned_section("wingman_section_campaign")
+
+    local opt = wingman_mod:add_new_option("wingman_ai_orders_per_turn", "slider")
+    opt:set_text("AI orders per turn (cap)")
+    opt:set_tooltip_text("Maximum scripted orders I issue on your behalf each turn (moves + recruit + build). Default 12 — lower if a specific mod interactions gets cranky, higher to let the AI run wild.")
+    opt:set_default_value(SLIDER_RANGES.wingman_ai_orders_per_turn.default)
+    opt:slider_set_min_max(
+        SLIDER_RANGES.wingman_ai_orders_per_turn.min,
+        SLIDER_RANGES.wingman_ai_orders_per_turn.max)
+    opt:slider_set_step_size(SLIDER_RANGES.wingman_ai_orders_per_turn.step)
     opt:set_assigned_section("wingman_section_campaign")
 end
 

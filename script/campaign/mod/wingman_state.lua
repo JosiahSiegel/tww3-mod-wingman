@@ -92,6 +92,12 @@ local DEFAULTS = {
     wingman_required_defeated_factions_csv = "",
     wingman_faction_restrictions_enabled  = false,
     wingman_restriction_violation_action  = "warn_pause",
+
+    -- AI Controller (W5) — runs on the player's faction to keep the
+    -- campaign moving when wingman_campaign_handover_enabled=true.
+    wingman_ai_enabled                    = true,
+    wingman_ai_aggression                 = "aggressive",
+    wingman_ai_orders_per_turn            = 12,
 }
 
 -- Allowed values for enum-like settings. Unknown values revert to the default.
@@ -106,6 +112,11 @@ local ALLOWED_ENUMS = {
     wingman_battle_plan_bias              = { auto = true, attack = true, defend = true },
     wingman_turn_cap_outcome              = { breakpoint = true, victory = true },
     wingman_restriction_violation_action  = { warn_pause = true, pause_disable = true },
+    wingman_ai_aggression                 = {
+        defensive  = true,
+        balanced   = true,
+        aggressive = true,
+    },
 }
 
 -- Slider bounds. Clamp on validate.
@@ -114,6 +125,7 @@ local BOUNDS = {
     wingman_periodic_break_interval       = { min = 0,   max = 100 },
     wingman_autoresolve_threshold         = { min = 0,   max = 100 },
     wingman_turn_cap_value                = { min = 1,   max = 500 },
+    wingman_ai_orders_per_turn            = { min = 1,   max = 50 },
 }
 
 -- ---------------------------------------------------------------------------
@@ -356,6 +368,7 @@ local function validate_settings(input)
         "wingman_turn_cap_enabled",
         "wingman_custom_win_enabled",
         "wingman_faction_restrictions_enabled",
+        "wingman_ai_enabled",
     }) do
         out_settings[key] = coerce_bool(out_settings[key], DEFAULTS[key])
     end
@@ -381,6 +394,11 @@ local function validate_settings(input)
             BOUNDS.wingman_turn_cap_value.min,
             BOUNDS.wingman_turn_cap_value.max,
             DEFAULTS.wingman_turn_cap_value)
+    out_settings.wingman_ai_orders_per_turn =
+        clamp_number(out_settings.wingman_ai_orders_per_turn,
+            BOUNDS.wingman_ai_orders_per_turn.min,
+            BOUNDS.wingman_ai_orders_per_turn.max,
+            DEFAULTS.wingman_ai_orders_per_turn)
 
     -- Enums
     for k, allowed in pairs(ALLOWED_ENUMS) do
