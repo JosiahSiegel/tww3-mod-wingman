@@ -170,6 +170,8 @@ function MctRoot:register_mod(key)
     mod_handle = setmetatable({key = key}, ModClass)
     return mod_handle
 end
+function MctRoot:get_version_number() return 1.3 end
+function MctRoot:get_version() return "1.3.0" end
 -- Stub the banned methods to detect regression.
 for _, banned in ipairs(MctRootBanned) do
     MctRoot[banned] = function(self, ...)

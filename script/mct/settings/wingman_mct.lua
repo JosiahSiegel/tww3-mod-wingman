@@ -1,5 +1,5 @@
 -- =====================================================================
--- Wingman — MCT Settings
+-- Wingman -- MCT Settings
 -- =====================================================================
 -- Registers all Wingman mod configuration options with the
 -- Mod Configuration Tool (MCT, Workshop ID 2927955021). Provides a
@@ -9,7 +9,7 @@
 -- Loaded by MCT automatically from
 --   script/mct/settings/wingman_mct.lua
 --
--- Safe when MCT is missing — logs a hard-dependency warning and
+-- Safe when MCT is missing -- logs a hard-dependency warning and
 -- exports a defaults-only API so downstream code can still boot.
 --
 -- API surface (consumed by wingman_state, wingman_campaign,
@@ -101,7 +101,7 @@ local DEFAULT_SETTINGS = {
 --- Defaults accessor; usable before DEFAULT_SETTINGS is finalized.
 function wingman_state_DEFAULTS() return DEFAULT_SETTINGS end
 
--- Slider (min, max, step, default) — must match DEFAULT_SETTINGS
+-- Slider (min, max, step, default) -- must match DEFAULT_SETTINGS
 local SLIDER_RANGES = {
     wingman_auto_end_turn_delay_seconds = {min = 0,  max = 10,   step = 1, default = 2},
     wingman_periodic_break_interval     = {min = 0,  max = 100,  step = 1, default = 10},
@@ -111,36 +111,36 @@ local SLIDER_RANGES = {
     wingman_ai_diplomacy_per_turn       = {min = 0,  max = 10,   step = 1, default = 2},
 }
 
--- Dropdown option tables — keys are short, display is co-pilot-friendly
+-- Dropdown option tables -- keys are short, display is co-pilot-friendly
 local DROPDOWN_OPTIONS = {
     wingman_safety_level = {
-        {key = "conservative", text = "Conservative — pause often"},
-        {key = "balanced",     text = "Balanced — middle ground"},
-        {key = "permissive",   text = "Permissive — act aggressively"},
+        {key = "conservative", text = "Conservative -- pause often"},
+        {key = "balanced",     text = "Balanced -- middle ground"},
+        {key = "permissive",   text = "Permissive -- act aggressively"},
     },
     wingman_battle_control_mode = {
-        {key = "scripted_ai",             text = "Scripted AI — I fight for you"},
-        {key = "autoresolve_if_favorable",text = "Autoresolve if favorable — odds check"},
-        {key = "pause_to_choose",         text = "Pause and choose — always ask"},
-        {key = "manual_observe",          text = "Manual observe — I just watch"},
+        {key = "scripted_ai",             text = "Scripted AI -- I fight for you"},
+        {key = "autoresolve_if_favorable",text = "Autoresolve if favorable -- odds check"},
+        {key = "pause_to_choose",         text = "Pause and choose -- always ask"},
+        {key = "manual_observe",          text = "Manual observe -- I just watch"},
     },
     wingman_battle_plan_bias = {
-        {key = "auto",   text = "Auto — let the AI decide"},
-        {key = "attack", text = "Attack — aggressive"},
-        {key = "defend", text = "Defend — hold and counter"},
+        {key = "auto",   text = "Auto -- let the AI decide"},
+        {key = "attack", text = "Attack -- aggressive"},
+        {key = "defend", text = "Defend -- hold and counter"},
     },
     wingman_turn_cap_outcome = {
-        {key = "breakpoint", text = "Breakpoint — stop and return control"},
-        {key = "victory",    text = "Victory — end campaign with official victory"},
+        {key = "breakpoint", text = "Breakpoint -- stop and return control"},
+        {key = "victory",    text = "Victory -- end campaign with official victory"},
     },
     wingman_restriction_violation_action = {
-        {key = "warn_pause",   text = "Warn + pause — alert and stop"},
-        {key = "pause_disable",text = "Pause + disable — turn Wingman off"},
+        {key = "warn_pause",   text = "Warn + pause -- alert and stop"},
+        {key = "pause_disable",text = "Pause + disable -- turn Wingman off"},
     },
     wingman_ai_aggression = {
-        {key = "defensive",  text = "Defensive — guard and consolidate"},
-        {key = "balanced",   text = "Balanced — react to threats"},
-        {key = "aggressive", text = "Aggressive — attack everything (default)"},
+        {key = "defensive",  text = "Defensive -- guard and consolidate"},
+        {key = "balanced",   text = "Balanced -- react to threats"},
+        {key = "aggressive", text = "Aggressive -- attack everything (default)"},
     },
 }
 
@@ -185,9 +185,9 @@ local function parse_key_csv(value)
             -- TWW3 exposes `out` as a global callable for the
             -- log file. The local was named 'out' in earlier code
             -- and shadowed the global, causing "attempt to call
-            -- a table value" — fixed by renaming the local to
+            -- a table value" -- fixed by renaming the local to
             -- 'result'.
-            out("[Wingman] WARNING: CSV key '" .. raw .. "' ignored — only [a-z0-9_] allowed.")
+            out("[Wingman] WARNING: CSV key '" .. raw .. "' ignored -- only [a-z0-9_] allowed.")
         end
     end
     return result
@@ -201,11 +201,15 @@ end
 -- source on GitHub + Lewdhammer Progression Framework reference).
 -- Do NOT use the 3K legacy API (mct:get_object_type, array_class,
 -- set_assigned_section, get_option_by_key, get_finalized_setting)
--- — those methods do not exist on TWW3 MCT and will throw silently
+-- -- those methods do not exist on TWW3 MCT and will throw silently
 -- at registration time, hiding all options from the panel.
 
 local wingman_mod = mct:register_mod("wingman")
-wingman_mod:set_title("Wingman — Your AI Co-Pilot")
+wingman_mod:set_workshop_id("wingman_local_id")
+wingman_mod:set_version(mct:get_version_number(), mct:get_version())
+wingman_mod:set_main_image("ui/mct/van_mct.png", 300, 300)
+wingman_mod:set_description("Wingman -- Your AI Co-Pilot for TWW3")
+wingman_mod:set_title("Wingman -- Your AI Co-Pilot")
 wingman_mod:set_author("Wingman Team")
 
 
@@ -266,12 +270,12 @@ do
     local opt = add_option("wingman_enabled")
     configure_option(opt, "wingman_enabled")
     opt:set_text("Enable Wingman")
-    opt:set_tooltip_text("Take the stick — let me handle your turns. Master switch for all Wingman automation.")
+    opt:set_tooltip_text("Take the stick -- let me handle your turns. Master switch for all Wingman automation.")
 
     local opt = add_option("wingman_debug_logging")
     configure_option(opt, "wingman_debug_logging")
     opt:set_text("Verbose logging")
-    opt:set_tooltip_text("Show me my work — verbose logs for troubleshooting.")
+    opt:set_tooltip_text("Show me my work -- verbose logs for troubleshooting.")
 
     local opt = add_option("wingman_safety_level")
     configure_option(opt, "wingman_safety_level")
@@ -287,12 +291,12 @@ do
     local opt = add_option("wingman_campaign_handover_enabled")
     configure_option(opt, "wingman_campaign_handover_enabled")
     opt:set_text("Enable campaign handover")
-    opt:set_tooltip_text("Play your campaign for you — I'll auto-end your turns so AI factions take over while you watch.")
+    opt:set_tooltip_text("Play your campaign for you -- I'll auto-end your turns so AI factions take over while you watch.")
 
     local opt = add_option("wingman_auto_end_turn_delay_seconds")
     configure_option(opt, "wingman_auto_end_turn_delay_seconds")
     opt:set_text("End-turn delay (seconds)")
-    opt:set_tooltip_text("Wait N seconds before ending your turn — gives UI time to settle so I don't crash on popups.")
+    opt:set_tooltip_text("Wait N seconds before ending your turn -- gives UI time to settle so I don't crash on popups.")
 
     local opt = add_option("wingman_periodic_break_interval")
     configure_option(opt, "wingman_periodic_break_interval")
@@ -302,12 +306,12 @@ do
     local opt = add_option("wingman_break_on_diplomacy_panel")
     configure_option(opt, "wingman_break_on_diplomacy_panel")
     opt:set_text("Break on diplomacy panel")
-    opt:set_tooltip_text("Pause when a diplomacy panel pops up — those tend to crash if I click blindly.")
+    opt:set_tooltip_text("Pause when a diplomacy panel pops up -- those tend to crash if I click blindly.")
 
     local opt = add_option("wingman_break_on_war_declaration")
     configure_option(opt, "wingman_break_on_war_declaration")
     opt:set_text("Break on war declaration")
-    opt:set_tooltip_text("Pause when war is declared on you — let you handle the alert.")
+    opt:set_tooltip_text("Pause when war is declared on you -- let you handle the alert.")
 
     local opt = add_option("wingman_break_on_pending_battle")
     configure_option(opt, "wingman_break_on_pending_battle")
@@ -317,7 +321,7 @@ do
     local opt = add_option("wingman_ai_enabled")
     configure_option(opt, "wingman_ai_enabled")
     opt:set_text("AI controls your faction")
-    opt:set_tooltip_text("When I'm in the cockpit, I actively move your armies, queue buildings, recruit, and attack — using scripted orders on your own faction (highest-skill-attitude by default). Disabled = I still hand the turn back, but I won't move anything for you.")
+    opt:set_tooltip_text("When I'm in the cockpit, I actively move your armies, queue buildings, recruit, and attack -- using scripted orders on your own faction (highest-skill-attitude by default). Disabled = I still hand the turn back, but I won't move anything for you.")
 
     local opt = add_option("wingman_ai_aggression")
     configure_option(opt, "wingman_ai_aggression")
@@ -327,32 +331,32 @@ do
     local opt = add_option("wingman_ai_orders_per_turn")
     configure_option(opt, "wingman_ai_orders_per_turn")
     opt:set_text("AI orders per turn (cap)")
-    opt:set_tooltip_text("Maximum scripted orders I issue on your behalf each turn (moves + recruit + build). Default 12 — lower if a specific mod interaction gets cranky, higher to let the AI run wild.")
+    opt:set_tooltip_text("Maximum scripted orders I issue on your behalf each turn (moves + recruit + build). Default 12 -- lower if a specific mod interaction gets cranky, higher to let the AI run wild.")
 
     local opt = add_option("wingman_ai_attack_adjacent")
     configure_option(opt, "wingman_ai_attack_adjacent")
     opt:set_text("AI attacks adjacent enemies")
-    opt:set_tooltip_text("When enabled, your AI driver actively attacks adjacent enemy armies and settlements (subject to the order budget). The highest-skill-level AI takes full control — no waiting for you to click attack.")
+    opt:set_tooltip_text("When enabled, your AI driver actively attacks adjacent enemy armies and settlements (subject to the order budget). The highest-skill-level AI takes full control -- no waiting for you to click attack.")
 
     local opt = add_option("wingman_ai_diplomacy_enabled")
     configure_option(opt, "wingman_ai_diplomacy_enabled")
     opt:set_text("AI handles diplomacy")
-    opt:set_tooltip_text("When enabled, your AI driver will declare war, make peace, sign trade agreements, NAPs, alliances, vassals, and confederations. Default OFF — flip this on if you want full autonomy. Aggression setting controls whether the AI leans toward war or peace.")
+    opt:set_tooltip_text("When enabled, your AI driver will declare war, make peace, sign trade agreements, NAPs, alliances, vassals, and confederations. Default OFF -- flip this on if you want full autonomy. Aggression setting controls whether the AI leans toward war or peace.")
 
     local opt = add_option("wingman_ai_diplomacy_per_turn")
     configure_option(opt, "wingman_ai_diplomacy_per_turn")
     opt:set_text("Diplomacy actions per turn (cap)")
-    opt:set_tooltip_text("Maximum diplomatic actions the AI takes per turn. 0 = disable diplomacy regardless of the master switch. Default 2 — enough to react, not so many it spirals.")
+    opt:set_tooltip_text("Maximum diplomatic actions the AI takes per turn. 0 = disable diplomacy regardless of the master switch. Default 2 -- enough to react, not so many it spirals.")
 
     local opt = add_option("wingman_ai_research_enabled")
     configure_option(opt, "wingman_ai_research_enabled")
     opt:set_text("AI researches technologies")
-    opt:set_tooltip_text("When enabled, the AI will trigger bulk research once per campaign (TWW3 has no per-tech research API — this completes the whole tree at once). Use sparingly; once-per-campaign because research is binary in TWW3 scripting.")
+    opt:set_tooltip_text("When enabled, the AI will trigger bulk research once per campaign (TWW3 has no per-tech research API -- this completes the whole tree at once). Use sparingly; once-per-campaign because research is binary in TWW3 scripting.")
 
     local opt = add_option("wingman_ai_rituals_enabled")
     configure_option(opt, "wingman_ai_rituals_enabled")
     opt:set_text("AI performs faction rites")
-    opt:set_tooltip_text("When enabled, the AI performs any available faction rites once per turn. Cannot target specific factions for rituals that require a target — the engine picks based on availability.")
+    opt:set_tooltip_text("When enabled, the AI performs any available faction rites once per turn. Cannot target specific factions for rituals that require a target -- the engine picks based on availability.")
 end
 
 
@@ -394,7 +398,7 @@ do
     local opt = add_option("wingman_turn_cap_enabled")
     configure_option(opt, "wingman_turn_cap_enabled")
     opt:set_text("Enable turn cap")
-    opt:set_tooltip_text("Set a hard turn limit. When reached, I hand control back (or declare victory — see next option).")
+    opt:set_tooltip_text("Set a hard turn limit. When reached, I hand control back (or declare victory -- see next option).")
 
     local opt = add_option("wingman_turn_cap_value")
     configure_option(opt, "wingman_turn_cap_value")
@@ -424,7 +428,7 @@ do
     local opt = add_option("wingman_faction_restrictions_enabled")
     configure_option(opt, "wingman_faction_restrictions_enabled")
     opt:set_text("Enable faction restrictions")
-    opt:set_tooltip_text("Watch for banned factions — if you confederate or inherit one, I'll warn you.")
+    opt:set_tooltip_text("Watch for banned factions -- if you confederate or inherit one, I'll warn you.")
 
     local opt = add_option("wingman_restriction_violation_action")
     configure_option(opt, "wingman_restriction_violation_action")
@@ -434,7 +438,7 @@ do
     local opt = add_option("wingman_banned_factions_csv")
     configure_option(opt, "wingman_banned_factions_csv")
     opt:set_text("Banned factions (CSV)")
-    opt:set_tooltip_text("Faction keys that trigger a violation warning if you ever own them. Comma-separated, lowercase, e.g. 'wh_main_vampire_counts,wh2_main_skv_clan_mors'. Type 'help' to list valid faction keys is not supported — see text/db/factions.txt or the vanilla faction_keys table for the canonical list.")
+    opt:set_tooltip_text("Faction keys that trigger a violation warning if you ever own them. Comma-separated, lowercase, e.g. 'wh_main_vampire_counts,wh2_main_skv_clan_mors'. Type 'help' to list valid faction keys is not supported -- see text/db/factions.txt or the vanilla faction_keys table for the canonical list.")
 end
 
 
