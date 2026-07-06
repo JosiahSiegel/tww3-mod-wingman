@@ -76,24 +76,35 @@ def build_file_index(entries: list[tuple[str, int, int]]) -> bytes:
     entries: list of (in_pack_path, size_on_disk, timestamp) — one per file.
     Returns the raw index bytes (NOT length-prefixed; the caller computes size).
 
-    Per the PFH5 spec each entry is:
-        u32 data_size    little-endian
-        u32 timestamp    little-endian (ONLY present when header bitmask
-                         HAS_INDEX_WITH_TIMESTAMPS = 0x10 is set in the
-                         Type+Bitmask byte)
-        path\0           UTF-8, NUL-terminated
+    Per the canonical PFH5 spec (verified against rpfm_lib
+    rpfm_lib/src/files/pack/pack_versions/pfh5.rs, June 2026), each
+    entry is:
+        u32  data_size        little-endian
+        u32  timestamp        little-endian  -- ONLY if header bitmask
+                                              HAS_INDEX_WITH_TIMESTAMPS (0x04000000)
+                                              is set. We never set it, so this
+                                              is omitted.
+        u8   is_compressed    0x00 (uncompressed) or 0x01 (compressed).
+                              Always present since PFH5, regardless of
+                              bitmask. CRITICAL: omitting this byte shifts
+                              all path strings by 1 byte, so the launcher
+                              reads the first character of the path as the
+                              is_compressed flag and the rest as garbage.
+                              This is what made the W7/W8 packs load
+                              silently into the mod list but never appear
+                              in the MCT panel.
+        path\0               UTF-8, NUL-terminated. Use forward slashes;
+                              the launcher normalizes back-slashes on read.
 
-    We DO NOT write timestamps. Writing them without setting the 0x10 bit
-    corrupts the file index: the engine reads 4 extra bytes (the timestamp)
-    as part of the path-length field (psize), producing garbage values
-    (~1.7GB) and causing the engine to reject the entire pack silently.
-    W7+ users reported exactly this: the mod was enabled in the launcher
-    but no Lua files ever loaded.
+    Minimum entry size = 4 (size) + 1 (compressed flag) + 1 (NUL for empty
+    path) = 6 bytes, per the rpfm_lib source comment "// 6 because 4
+    (size) + 1 (compressed?) + 1 (null), 10 because + 4 (timestamp)".
     """
     buf = bytearray()
     for path, size, _ts in entries:
-        buf += struct.pack("<I", size)        # data size (no timestamp)
-        buf += path.encode("utf-8") + b"\x00"
+        buf += struct.pack("<I", size)        # data size
+        buf += b"\x00"                        # is_compressed = false (PFH5 always has this byte)
+        buf += path.encode("utf-8") + b"\x00" # NUL-terminated UTF-8 path
     return bytes(buf)
 
 
