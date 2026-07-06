@@ -170,7 +170,24 @@ def main() -> int:
     print(f"  Installed: {dst_pack}")
     print(f"  Installed: {dst_png}")
 
-    # 2. Update used_mods.txt: ensure exactly one 'mod "wingman.pack";' line.
+    # 1b. ALSO copy to the workshop/content/1142710/9999999999/ path.
+    # The CA launcher scans the workshop/content/ directory for packs
+    # listed in used_mods.txt. Without this copy, the launcher loads
+    # a stale version from workshop/content/ instead of the fresh
+    # pack at data/. (Root cause of the "Wingman not in MCT" bug
+    # discovered 2026-07-06: the workshop/content/ copy was 4+ hours
+    # stale and the launcher preferred it.)
+    workshop_dir = Path(r"E:/SteamLibrary/steamapps/workshop/content/1142710/9999999999")
+    workshop_pack = workshop_dir / "wingman.pack"
+    workshop_png = workshop_dir / "wingman.png"
+    workshop_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy(src_pack, workshop_pack)
+    shutil.copy(src_png, workshop_png)
+    print(f"  Installed: {workshop_pack}")
+    print(f"  Installed: {workshop_png}")
+
+    # 2. Update used_mods.txt: ensure exactly one 'mod "wingman.pack";' line
+    # AND one 'add_working_directory' for the workshop/content/ path.
     if not used_mods.is_file():
         raise SystemExit(
             f"ERROR: {used_mods} not found. Run the game once to create it, "
@@ -181,15 +198,17 @@ def main() -> int:
     text = raw_bytes.decode("utf-8").replace("\r\n", "\n")
 
     new_lines = clean_wingman_entries(text)
-    # Also strip any leftover wingman add_working_directory lines (legacy
-    # workshop-folder experiment from earlier commit 6ff12c8).
-    new_lines = [
-        l for l in new_lines
-        if not ("add_working_directory" in l and "wingman" in l.lower())
-    ]
+    # Ensure the add_working_directory line is present (the launcher
+    # needs it to find the pack in workshop/content/).
+    workshop_add_line = f'add_working_directory "{str(workshop_dir).replace(chr(92), chr(92)+chr(92))}";'
+    has_workshop_add = any(
+        "add_working_directory" in l and "9999999999" in l
+        for l in new_lines
+    )
+    if not has_workshop_add:
+        new_lines.append(workshop_add_line)
     # Append the canonical mod line only if clean_wingman_entries didn't
-    # already keep one. data/-based installs do not need an
-    # add_working_directory line — the launcher scans data/ directly.
+    # already keep one.
     has_mod_line = any(
         re.match(r'\s*mod\s+"wingman\.pack"\s*;', l, re.IGNORECASE)
         for l in new_lines
@@ -200,7 +219,7 @@ def main() -> int:
     if has_crlf:
         new_text = new_text.replace("\n", "\r\n")
     used_mods.write_bytes(new_text.encode("utf-8"))
-    print(f'  Updated: {used_mods} (added: mod "wingman.pack";)')
+    print(f'  Updated: {used_mods} (added: mod "wingman.pack"; + workshop add_working_directory)')
 
     step("Install complete")
     print("Next: launch TWW3 via the original Total War launcher.")
