@@ -619,7 +619,7 @@ def main() -> int:
     if should_low:
         print(f"  FAIL: _should_fire returned true with interval=100, counter=0")
         return 1
-    print(f"  OK: counter gating works (interval=100, counter=0 → not firing)")
+    print(f"  OK: counter gating works (interval=100, counter=0 -> not firing)")
 
     # --- Test 20: W8-D: fire_strategic_pause_dilemma is callable + pcall-safe
     print("\n[20] fire_strategic_pause_dilemma is pcall-safe and registers a listener")
