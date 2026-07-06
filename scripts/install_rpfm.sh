@@ -9,25 +9,23 @@
 # fast-skips the install if the cached binary is already executable.
 #
 # Archive layout (verified by inspecting the tarball):
-#   rpfm-v4.5.4-x86_64-unknown-linux-gnu/    <- strip 1
-#     usr/
-#       bin/rpfm_cli                         <- target binary
-#       bin/rpfm_ui
-#       share/rpfm/icons/*                   <- runtime resources (relative paths)
-#       share/rpfm/locale/*
-#       share/rpfm/ui/*
-#       share/applications/rpfm.desktop
-#       share/licenses/rpfm/LICENSE
+#   usr/
+#     bin/rpfm_cli                           <- target binary
+#     bin/rpfm_ui
+#     share/rpfm/icons/*                     <- runtime resources (relative paths)
+#     share/rpfm/locale/*
+#     share/rpfm/ui/*
+#     share/applications/rpfm.desktop
+#     share/licenses/rpfm/LICENSE
 #
-# `--strip-components=1` keeps the `usr/` subtree intact because the binary
-# resolves sibling resources (icons, locale) relative to its own location.
-# Final path on disk: tools/rpfm/usr/bin/rpfm_cli
+# The archive is flat — `usr/` is the top-level entry. We do NOT use
+# --strip-components because there is no top-level wrapper to remove.
+# Final path on disk: tools/rpfm/usr/bin/rpfm_cli (binary) plus the
+# sibling share/ subtree, so the binary's relative resource lookups work.
 #
-# Notes for tar compatibility:
-#   - `--strip-components` requires GNU tar. GitHub-hosted ubuntu-latest runners
-#     use GNU tar, so this is safe.
-#   - `tar --use-compress-program=unzstd` requires the `zstd` package. On
-#     ubuntu-latest it is preinstalled; if absent we install it via apt-get.
+# Note: tar --use-compress-program=unzstd requires the `zstd` package.
+# On GitHub-hosted ubuntu-latest it is preinstalled; if absent we install
+# it via apt-get.
 set -euo pipefail
 
 RPFM_VERSION="4.5.4"
@@ -71,10 +69,11 @@ echo "Downloading ${RPFM_URL}..."
 curl -fsSL "${RPFM_URL}" -o "${RPFM_TARBALL}"
 
 echo "Extracting to ${TOOLS_DIR}..."
-# Strip only the top-level `rpfm-v4.5.4-x86_64-unknown-linux-gnu/` directory.
-# The `usr/` subtree is preserved so the binary's relative path lookups
-# (`../share/rpfm/icons/...`) still resolve.
-tar --use-compress-program=unzstd -xf "${RPFM_TARBALL}" -C "${TOOLS_DIR}" --strip-components=1
+# The archive is flat — top-level entries are `usr/bin/rpfm_cli`, `usr/share/...`,
+# `usr/bin/rpfm_ui`. NO strip-components: the `usr/` subtree is the root we want.
+# Result: tools/rpfm/usr/bin/rpfm_cli (binary), tools/rpfm/usr/share/rpfm/...
+# (icons/locale/ui, sibling resource paths relative to the binary still resolve).
+tar --use-compress-program=unzstd -xf "${RPFM_TARBALL}" -C "${TOOLS_DIR}"
 
 if [ ! -x "${RPFM_BIN}" ]; then
     echo "ERROR: rpfm_cli binary not found at ${RPFM_BIN} after extraction." >&2
