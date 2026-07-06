@@ -12,7 +12,7 @@
 
 set -euo pipefail
 
-RPFM_BIN="${RPFM_BIN:-${GITHUB_WORKSPACE:-$(pwd)}/tools/rpfm/rpfm_cli}"
+RPFM_BIN="${RPFM_BIN:-${GITHUB_WORKSPACE:-$(pwd)}/tools/rpfm/usr/bin/rpfm_cli}"
 REPO_ROOT="${REPO_ROOT:-$(pwd)}"
 PACK_NAME="!wingman.pack"
 PACK_PATH="${REPO_ROOT}/dist/${PACK_NAME}"

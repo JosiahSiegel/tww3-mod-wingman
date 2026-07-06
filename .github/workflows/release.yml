@@ -37,6 +37,8 @@ on:
   push:
     tags:
       - 'v*'                         # auto-trigger on SemVer tag push
+  pull_request:                       # validate PRs (build only, no release / no publish)
+    branches: [main]
   workflow_dispatch:                  # manual trigger (dry_run=true by default)
     inputs:
       dry_run:
@@ -46,7 +48,8 @@ on:
         default: true
 
 permissions:
-  contents: write                     # create / publish releases
+  contents: write                     # create / publish releases (only honored on tag pushes)
+  pull-requests: read                 # post PR status checks
   actions: read
 
 env:
@@ -57,7 +60,16 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Job 1: build pack + create draft GitHub Release
+  # Job: build pack + (on tag pushes only) create draft GitHub Release
+  #
+  # On pull_request: only the build + artifact upload run. The draft-release
+  # step is skipped (PRs don't have write access to releases on the base repo).
+  # This lets maintainers see the pack as a workflow artifact on every PR —
+  # download it, install locally, run S1/S6/S7 — before merging.
+  #
+  # On push (v* tag): full build + draft Release + post-reviewer summary.
+  #
+  # On workflow_dispatch: same as tag push (dry_run=true skips publish).
   # ---------------------------------------------------------------------------
   build:
     name: Build & Release Draft
@@ -107,6 +119,8 @@ jobs:
         run: ls -la dist/
 
       # Durable, signed-at-source-of-truth artifact independent of Releases.
+      # On PRs, this is the SOLE deliverable — contributors download the .pack
+      # from this artifact's row on the Actions run page.
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
@@ -114,11 +128,51 @@ jobs:
           path: dist/
           retention-days: 90
 
+      # ------------------------------------------------------------------------
+      # PR contributor hand-off: when the build runs on a PR (not a tag push),
+      # we don't create a draft Release — but we still want the contributor to
+      # be able to grab the .pack and try it locally. Print a concise summary
+      # telling them exactly where to find it.
+      # ------------------------------------------------------------------------
+      - name: PR build summary
+        if: github.event_name == 'pull_request' && success()
+        run: |
+          {
+            echo "## ✅ Wingman build succeeded for PR #${{ github.event.pull_request.number }}"
+            echo ""
+            echo "Pack and thumbnail are attached as the **\`wingman-pack\` artifact** on this run."
+            echo ""
+            echo "### Download and test locally"
+            echo "1. Open the **\`Artifacts\`** row at the bottom of this run page."
+            echo "2. Download \`wingman-pack\` (zip)."
+            echo "3. Extract and copy:"
+            echo '```powershell'
+            echo 'Expand-Archive wingman-pack.zip -DestinationPath .'
+            echo "Copy-Item \"wingman-pack\!wingman.pack\" \"C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III\data\!wingman.pack\" -Force"
+            echo "Copy-Item \"wingman-pack\!wingman.png\"  \"C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III\data\!wingman.png\"  -Force"
+            echo '```'
+            echo "4. Launch **original** TW launcher → Mod Manager → enable MCT + Wingman → Play."
+            echo "5. Run S1/S6/S7 from \`tests/manual/wingman_scenarios.md\`."
+            echo ""
+            echo "### What this run covers"
+            echo "- ✅ Lua module smoke test (lupa)"
+            echo "- ✅ RPFM pack build (PFH5 magic validated)"
+            echo "- ✅ Thumbnail copied"
+            echo "- ⏭ Draft Release + Steam publish (skipped on PRs — those only run on \`v*\` tag pushes)"
+            echo ""
+            echo "**Note:** PRs do not upload to Steam Workshop. Once the PR is merged and a \`vX.Y.Z\` tag is pushed, the same workflow builds + creates a draft Release + waits for maintainer approval before any Workshop publish."
+            echo ""
+            echo "**Run**: [${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       # Draft Release persists BEFORE the Workshop push so the user always
       # has something to fall back to (download + manual Steam upload) even
       # if Steam auth fails.
+      # Only on tag pushes — PRs don't have release-write permissions, and
+      # the workflow artifact alone is enough validation evidence for a PR.
       - name: Create draft GitHub Release
         id: create_release
+        if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
@@ -141,7 +195,7 @@ jobs:
       # step and have to dig through the Actions UI to find the artifact.
       # ------------------------------------------------------------------------
       - name: Post-reviewer hand-off summary
-        if: success()
+        if: github.event_name == 'push' && success()
         run: |
           {
             echo "## 📦 Wingman build ready for local testing"
