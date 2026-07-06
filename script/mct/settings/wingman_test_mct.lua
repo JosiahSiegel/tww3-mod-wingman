@@ -27,3 +27,7 @@ test_opt:set_tooltip_text("If you see this, MCT integration works!")
 out("[WingmanTest DEBUG] T10: set_tooltip_text OK")
 test_opt:set_is_global(true)
 out("[WingmanTest DEBUG] T11: set_is_global OK - body complete")
+
+local _test_ok, _test_err = pcall(function() end)  -- no-op, we just want the locals
+-- AGGRESSIVE DEBUG: also wrap pcall around the whole test body retroactively
+out("[WingmanTest DEBUG] T12: file body complete")

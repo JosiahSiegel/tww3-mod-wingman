@@ -2,6 +2,11 @@
 -- Wingman -- MCT Settings
 -- =====================================================================
 out("[Wingman DEBUG] wingman_mct.lua file loading") -- D0: file body starts
+-- AGGRESSIVE DEBUG: wrap entire body in pcall so any error is caught
+-- and printed with the full stack traceback + message. This is
+-- temporary diagnostic instrumentation; will be removed once
+-- the actual cause of "Wingman not appearing in MCT panel" is found.
+local _wingman_ok, _wingman_err = pcall(function()
 -- Registers all Wingman mod configuration options with the
 -- Mod Configuration Tool (MCT, Workshop ID 2927955021). Provides a
 -- public API (`wingman_mct.*`) for the rest of the mod to read
@@ -258,9 +263,13 @@ for k, v in pairs(DEFAULT_SETTINGS) do
     OPTION_TYPE_BY_KEY[k] = t
 end
 
+local _add_option_counter = 0
 local function add_option(key)
+    _add_option_counter = _add_option_counter + 1
     local otype = OPTION_TYPE_BY_KEY[key]
+    out("[Wingman DEBUG] add_option[" .. _add_option_counter .. "] key=" .. key .. " type=" .. tostring(otype))
     local opt = wingman_mod:add_new_option(key, otype)
+    out("[Wingman DEBUG] add_option[" .. _add_option_counter .. "] returned: " .. tostring(opt))
     return opt, otype
 end
 
@@ -273,6 +282,7 @@ local function configure_option(opt, key)
     if DROPDOWN_OPTIONS[key] then
         opt:add_dropdown_values(DROPDOWN_OPTIONS[key])
     end
+    out("[Wingman DEBUG] configure_option key=" .. key .. " OK")
 end
 
 
@@ -280,6 +290,8 @@ end
 -- 5. Section: General
 ---------------------------------------------------------------------
 do
+    out("[Wingman DEBUG] === Section: General ===")
+    local _s_ok, _s_err = pcall(function()
     local opt = add_option("wingman_enabled")
     out("[Wingman DEBUG] D13: first add_option returned: " .. tostring(opt)) -- D13
     configure_option(opt, "wingman_enabled")
@@ -295,6 +307,9 @@ do
     configure_option(opt, "wingman_safety_level")
     opt:set_text("Safety level")
     opt:set_tooltip_text("How careful should I be? Conservative = pause often. Balanced = middle ground. Permissive = act aggressively.")
+    end) -- end pcall for Section: General
+    if not _s_ok then out("[Wingman FATAL] Section: General threw: " .. tostring(_s_err)) end
+    out("[Wingman DEBUG] === Section: General DONE (ok=" .. tostring(_s_ok) .. ") ===")
 end
 
 
@@ -302,6 +317,8 @@ end
 -- 6. Section: Campaign Handover
 ---------------------------------------------------------------------
 do
+    out("[Wingman DEBUG] === Section: Campaign Handover ===")
+    local _s_ok, _s_err = pcall(function()
     local opt = add_option("wingman_campaign_handover_enabled")
     configure_option(opt, "wingman_campaign_handover_enabled")
     opt:set_text("Enable campaign handover")
@@ -371,6 +388,9 @@ do
     configure_option(opt, "wingman_ai_rituals_enabled")
     opt:set_text("AI performs faction rites")
     opt:set_tooltip_text("When enabled, the AI performs any available faction rites once per turn. Cannot target specific factions for rituals that require a target -- the engine picks based on availability.")
+    end) -- end pcall
+    if not _s_ok then out("[Wingman FATAL] Section: Campaign Handover threw: " .. tostring(_s_err)) end
+    out("[Wingman DEBUG] === Section: Campaign Handover DONE (ok=" .. tostring(_s_ok) .. ") ===")
 end
 
 
@@ -378,6 +398,8 @@ end
 -- 7. Section: Battle Handover
 ---------------------------------------------------------------------
 do
+    out("[Wingman DEBUG] === Section: Battle Handover ===")
+    local _s_ok, _s_err = pcall(function()
     local opt = add_option("wingman_battle_handover_enabled")
     configure_option(opt, "wingman_battle_handover_enabled")
     opt:set_text("Enable battle handover")
@@ -402,6 +424,9 @@ do
     configure_option(opt, "wingman_auto_dismiss_battle_results")
     opt:set_text("Auto-dismiss battle results")
     opt:set_tooltip_text("Auto-dismiss the post-battle results screen so I can keep your campaign moving.")
+    end) -- end pcall
+    if not _s_ok then out("[Wingman FATAL] Section: Battle Handover threw: " .. tostring(_s_err)) end
+    out("[Wingman DEBUG] === Section: Battle Handover DONE (ok=" .. tostring(_s_ok) .. ") ===")
 end
 
 
@@ -409,6 +434,8 @@ end
 -- 8. Section: Rules & Limits
 ---------------------------------------------------------------------
 do
+    out("[Wingman DEBUG] === Section: Rules & Limits ===")
+    local _s_ok, _s_err = pcall(function()
     local opt = add_option("wingman_turn_cap_enabled")
     configure_option(opt, "wingman_turn_cap_enabled")
     opt:set_text("Enable turn cap")
@@ -453,6 +480,9 @@ do
     configure_option(opt, "wingman_banned_factions_csv")
     opt:set_text("Banned factions (CSV)")
     opt:set_tooltip_text("Faction keys that trigger a violation warning if you ever own them. Comma-separated, lowercase, e.g. 'wh_main_vampire_counts,wh2_main_skv_clan_mors'. Type 'help' to list valid faction keys is not supported -- see text/db/factions.txt or the vanilla faction_keys table for the canonical list.")
+    end) -- end pcall
+    if not _s_ok then out("[Wingman FATAL] Section: Rules & Limits threw: " .. tostring(_s_err)) end
+    out("[Wingman DEBUG] === Section: Rules & Limits DONE (ok=" .. tostring(_s_ok) .. ") ===")
 end
 
 
@@ -593,3 +623,9 @@ _G.wingman_mct = wingman_mct
 -- Log successful registration so users can verify the integration
 -- loaded in their lua_mod_log.txt / script_log_*.txt.
 out("[Wingman] MCT registration complete. 30 settings, 6 sliders, 6 dropdowns, 3 text inputs, 15 checkboxes.")
+
+end) -- END pcall wrapper
+if not _wingman_ok then
+    out("[Wingman FATAL] body threw error: " .. tostring(_wingman_err))
+    out("[Wingman FATAL] stack: " .. debug.traceback("", 2))
+end
