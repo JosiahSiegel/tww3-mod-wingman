@@ -15,10 +15,10 @@ python scripts/lupa_smoke.py
 # 2. Rebuild the pack
 python scripts/build_pack.py
 
-# 3. Copy into TWW3 (replace the path with your actual install)
-$TWW3 = "C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III"   # adjust if needed
-Copy-Item "dist\wingman.pack" "$TWW3\data\wingman.pack" -Force
-Copy-Item "dist\wingman.png"  "$TWW3\data\wingman.png"  -Force
+# 3. Install to the workshop folder + update used_mods.txt (idempotent)
+#    (DO NOT copy to <TWW3>/data/ — the launcher only reads workshop folders)
+$env:TWW3 = "E:\SteamLibrary\steamapps\common\Total War WARHAMMER III"   # adjust
+python scripts/deploy.py
 
 # 4. Launch TWW3 (original launcher, NOT EA Mod Manager)
 # 5. Mod Manager: tick MCT + Wingman → Play
@@ -57,13 +57,31 @@ Output: `dist/wingman.pack` (~370 KB) and `dist/wingman.png`. The script validat
 
 ## Step 2: Install to TWW3
 
-Replace `<TWW3>` with your actual install path. Default Steam is `C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III`; if you installed Steam to another drive, the path is `<that drive>:\SteamLibrary\steamapps\common\Total War WARHAMMER III`. To find yours: right-click TWW3 in Steam library → Manage → Browse local files.
+**Important:** the TWW3 launcher (original Total War launcher, NOT the EA Mod Manager) reads `used_mods.txt` and looks for each `mod "X.pack";` entry in the corresponding `add_working_directory` paths. Each path is a Workshop-style folder named `<appid>/<workshop_id>/`. **Do NOT copy the pack to `<TWW3>/data/`** — that folder is for vanilla game content + early-style local mods without MCT integration. Wingman uses the modern MCT integration path, so it must live in a workshop-style folder.
+
+Use the included `deploy.py` script — it handles the workshop folder + the `used_mods.txt` edit + idempotent re-runs:
+
+**PowerShell**:
 
 ```powershell
-$TWW3 = "C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III"   # adjust if needed
-Copy-Item "dist\wingman.pack" "$TWW3\data\wingman.pack" -Force
-Copy-Item "dist\wingman.png"  "$TWW3\data\wingman.png"  -Force
+$env:TWW3 = "E:\SteamLibrary\steamapps\common\Total War WARHAMMER III"   # adjust if needed
+python scripts\deploy.py
 ```
+
+**Bash**:
+
+```bash
+TWW3="/e/SteamLibrary/steamapps/common/Total War WARHAMMER III" python scripts/deploy.py
+```
+
+What `deploy.py` does:
+
+1. Reads `$TWW3` (or auto-detects the default Steam install).
+2. Creates `<TWW3>/workshop/content/1142710/<local-test-id>/` and copies `wingman.pack` + `wingman.png` into it.
+3. Adds the `add_working_directory` line + `mod "wingman.pack";` to `used_mods.txt` (and strips any prior wingman entries, so it's safe to re-run).
+4. Removes any stale copy from `<TWW3>/data/`.
+
+The `<local-test-id>` defaults to `9999999999`. After you publish to Steam Workshop and get a real Workshop item ID, edit `WORKSHOP_ID = "9999999999"` at the top of `scripts/deploy.py` to use the real ID (then re-run).
 
 The filename MUST match the `.pack` base name exactly (case-sensitive, no extra characters).
 
@@ -100,7 +118,7 @@ To pick the original launcher:
 ### Enable the mods
 
 1. In the launcher, click **Mod Manager**.
-2. Tick **Mod Configuration Tool** (subscribed from Workshop) and **wingman** (just installed to `data/`). **MCT first** (load order).
+2. Tick **Mod Configuration Tool** (subscribed from Workshop) and **wingman** (installed to the workshop folder by `deploy.py`). **MCT first** (load order).
 3. Click **Play**.
 
 ### Verify boot
@@ -164,7 +182,7 @@ If 1–7 pass, the mod is at least bootable and the core orchestration works.
 │  ↓                                                       │
 │  python scripts/build_pack.py   (< 1s)                  │
 │  ↓                                                       │
-│  Copy dist\wingman.pack to <TWW3>\data\   (~1s)        │
+│  python scripts/deploy.py      (idempotent, ~1s)         │
 │  ↓                                                       │
 │  (Optional) tail the script log for live feedback        │
 │  ↓                                                       │
@@ -214,7 +232,7 @@ done
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Mod doesn't appear in Mod Manager | `.pack` not in `<TWW3>/data/`, or wrong filename | Re-run `python scripts/build_pack.py` and copy. Filename must be `wingman.pack`. |
+| Mod doesn't appear in Mod Manager | `.pack` not in workshop folder, or `add_working_directory` missing from `used_mods.txt` | Re-run `python scripts/deploy.py`. The pack must be in `<TWW3>/workshop/content/1142710/<id>/`, NOT in `<TWW3>/data/`. |
 | Mod ticked but campaign crashes on load | Lua syntax error | Open `script_log_*.txt`, find first Lua error line, fix it. |
 | `[Wingman] WARNING: MCT ... not loaded` | MCT not subscribed or not ticked | Subscribe via Steam, tick before Wingman in Mod Manager. |
 | `[Wingman] init` line never appears | `enable_console_logging` flag missing | Create the empty file in `<TWW3>/data/script/`. |

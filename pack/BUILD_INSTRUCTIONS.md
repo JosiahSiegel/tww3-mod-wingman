@@ -26,22 +26,31 @@ The script validates the PFH5 magic on the output.
 
 ### 2. Install Locally
 
-Replace `<TWW3>` with your actual install path. The default Steam install is `C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III`; if you installed Steam to another drive, the path is `<that drive>:\SteamLibrary\steamapps\common\Total War WARHAMMER III`. To find yours: right-click TWW3 in your Steam library → Manage → Browse local files — the path opens to the TWW3 root.
+The TWW3 launcher (original Total War launcher, NOT the EA Mod Manager) loads mods from `add_working_directory` paths in `<TWW3>/used_mods.txt`. Each path is a Workshop-style folder named `<appid>/<workshop_id>/` containing `<modname>.pack` + `<modname>.png`. **Do NOT copy the pack to `<TWW3>/data/`** — the launcher only scans the `add_working_directory` paths for mod entries, and packs in `data/` will not appear in the Mod Manager.
+
+Use the included `deploy.py` script — it handles the workshop folder + the `used_mods.txt` edit + idempotent re-runs:
 
 **PowerShell**:
 
 ```powershell
-$TWW3 = "C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III"   # adjust if needed
-Copy-Item "dist\wingman.pack" "$TWW3\data\wingman.pack" -Force
-Copy-Item "dist\wingman.png"  "$TWW3\data\wingman.png"  -Force
+$env:TWW3 = "C:\Program Files (x86)\Steam\steamapps\common\Total War WARHAMMER III"   # adjust if needed
+python scripts\deploy.py
 ```
 
 **Bash**:
 
 ```bash
-TWW3="/c/Program Files (x86)/Steam/steamapps/common/Total War WARHAMMER III"   # adjust if needed
-cp dist/'wingman.pack' dist/'wingman.png' "$TWW3/data/"
+TWW3="/c/Program Files (x86)/Steam/steamapps/common/Total War WARHAMMER III" python scripts/deploy.py
 ```
+
+What `deploy.py` does:
+
+1. Reads `$TWW3` (or auto-detects the default Steam install).
+2. Creates `<TWW3>/workshop/content/1142710/<local-test-id>/` and copies `wingman.pack` + `wingman.png` into it.
+3. Adds the `add_working_directory` line + `mod "wingman.pack";` to `used_mods.txt` (and strips any prior wingman entries, so it's safe to re-run).
+4. Removes any stale copy from `<TWW3>/data/`.
+
+The `<local-test-id>` defaults to `9999999999`. After you publish to Steam Workshop and get a real Workshop item ID, edit `WORKSHOP_ID = "9999999999"` at the top of `scripts/deploy.py` to use the real ID (then re-run).
 
 ### 3. Enable Script Logging (one-time)
 
@@ -91,9 +100,9 @@ with open('dist/wingman.pack', 'rb') as f:
 
 1. Make your code changes.
 2. Bump `CHANGELOG.md` version.
-3. Re-run `python scripts/build_pack.py`.
-4. Copy the new `dist/wingman.pack` + `wingman.png` into `<TWW3>/data/`.
-5. Test in-game.
+3. Re-run `python scripts/build_pack.py` (rebuilds `dist/wingman.pack`).
+4. Re-run `python scripts/deploy.py` (copies to the workshop folder; idempotent).
+5. Test in-game (Mod Manager should show the updated pack on next launch).
 6. Original launcher → Mod Manager → right-click Wingman → **Update**.
 7. Add **change notes** describing what changed.
 
@@ -104,6 +113,7 @@ with open('dist/wingman.pack', 'rb') as f:
 | Thumbnail fails to upload | Must be PNG, < 1 MB, filename matches pack base |
 | `Patch X.Y: New table Z required` | Pure-Python packer has no schema cache. If you see this, it's an in-game launcher patch-time validation — unrelated to this mod. |
 | MCT panel missing | Verify `script/mct/settings/wingman_mct.lua` is in the pack |
+| Mod doesn't appear in Mod Manager | Re-run `python scripts/deploy.py`. The pack must be in a workshop folder (not `data/`) and `used_mods.txt` must have a matching `add_working_directory` line. |
 | Lua errors in log | Check `script_log_*.txt` for the first error line; the call stack points at the file |
 | Upload spins forever | Restart Steam, retry |
 

@@ -17,7 +17,7 @@
 ## Upload Steps
 
 1. Build pack: `python scripts/build_pack.py` (or follow `pack/BUILD_INSTRUCTIONS.md`).
-2. Place `dist\wingman.pack` and `dist\wingman.png` in TWW3 `data\` folder.
+2. Install locally for smoke testing: `python scripts/deploy.py` (copies to the workshop folder + updates `used_mods.txt`).
 3. Launch **original Total War launcher** (NOT EA Mod Manager).
 4. Open **Mod Manager**.
 5. Right-click Wingman → **Upload**.
@@ -41,7 +41,7 @@
 |---|---|
 | Thumbnail won't load | PNG only, filename matches pack, < 1 MB strict |
 | Upload spins forever | Restart Steam, retry |
-| Mod not appearing | Check `data/` for `.pack`, verify filename (no uppercase), restart launcher |
+| Mod not appearing | Run `python scripts/deploy.py` — the pack must be in `<TWW3>/workshop/content/1142710/<id>/`, NOT in `<TWW3>/data/`. Verify filename (no uppercase), restart launcher. |
 | "Patch X.Y: New table Z required" | Out-of-date schema; rebuild after game patch |
 
 ## CI vs Manual Publishing
