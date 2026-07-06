@@ -2,9 +2,9 @@
 
 This is the runnable TDD suite for the Wingman TWW3 mod. Each scenario is binary pass/fail, runs in-game, and produces evidence you file under `tests/manual/evidence/`. The mod's own log lines are the source of truth — no behavior counts as fixed until the corresponding line shows up in `script_log_*.txt`.
 
-The scenarios here mirror the plan in `.omo/plans/wingman-mod.md` (Verification Scenarios S1–S10, Smoke-test Workflow), but they're rewritten as a runnable matrix with the actual log prefixes emitted by the modules. Use this file as the entry point for any release pass.
+This suite has 16 scenarios: S1–S10 (core), S11/S11b/S11c (W5/W6 AI controller), S11d (W7 Autopilot), S11e (W7 Advisory). Each is a runnable matrix with the actual log prefixes emitted by the modules. Use this file as the entry point for any release pass.
 
-> **First time testing locally?** Read [`LOCAL_TESTING.md`](./LOCAL_TESTING.md) first — it covers the RPFM build, the script-logging setup, the original-launcher requirement, and the iterative dev loop.
+> **First time testing locally?** Read [`LOCAL_TESTING.md`](./LOCAL_TESTING.md) first — it covers the pack build (pure-Python), the script-logging setup, the original-launcher requirement, and the iterative dev loop.
 
 ## How to run these
 

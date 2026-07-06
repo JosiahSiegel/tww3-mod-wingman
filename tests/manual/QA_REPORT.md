@@ -1,8 +1,17 @@
-# Wingman — Final QA Report
+# Wingman — QA Report (v0.1.0-alpha baseline)
 
 **Date**: 2026-07-05
-**Build**: 0.1.0-alpha
+**Build**: 0.1.0-alpha (pre-W6)
 **Status**: READY for Steam Workshop upload (with mandatory user-run scenarios)
+
+> **Note (post-W8)**: This is the **v0.1 baseline audit**. It predates the W6 AI controller, W7 Autopilot/Advisory, and W8 full-coverage additions. Some citations reference the original RPFM build flow (since replaced by the pure-Python `scripts/build_pack.py`) and a 22-setting MCT count (now higher). For current verification, run the automated suites:
+>
+> - `python scripts/lupa_smoke.py` — all 9 modules load + bootstrap
+> - `python tests/manual/test_w6_ai_features.py` — 5 tests
+> - `python tests/manual/test_w7_autopilot.py` — 10 tests
+> - `python tests/manual/test_w8_step_coverage.py` — 20 tests
+>
+> The architecture invariants below (MP guard, pcall wrapping, no `cm:set_faction_human`, MIT + IP disclaimer) remain valid through W8.
 
 ## Architecture Compliance
 
