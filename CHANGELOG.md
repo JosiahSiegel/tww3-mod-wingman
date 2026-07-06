@@ -2,6 +2,82 @@
 
 All notable changes to Wingman will be documented here.
 
+## [Unreleased] — W7
+
+### Added
+- **W7 Autopilot mode** — full UI lock + CAI personality rewrite +
+  scripted orders. When the user engages Autopilot, Wingman:
+  1. Calls `cm:steal_user_input(true)` so all keyboard input is
+     routed to script (the player can still move the camera; mouse
+     and gamepad still work).
+  2. Locks the end-turn button via the CA-blessed 3-call pattern:
+     `uim:override("end_turn"):set_allowed(false)` (persistent
+     across save/load) + `cm:override_ui("disable_end_turn", true)`
+     + `cm:disable_end_turn(true)`.
+  3. Installs the user-selected CAI personality on the player
+     faction via `cm:force_change_cai_faction_personality` AND
+     `cm:cai_set_faction_script_context("ALPHA")` (defense-in-depth).
+  4. Shows the "Wingman in Control — click to take back" banner
+     via `core:get_or_create_component("wingman_banner", ...)` +
+     `SetVisible(true)`. The banner has a "Take Back Control"
+     button.
+  5. Registers an ESC key callback via
+     `cm:steal_escape_key_with_callback` so the player can hold
+     ESC for 3 seconds to take back control without clicking the
+     banner button.
+  6. Persists the autopilot-active flag via `cm:set_saved_value`
+     and re-applies the lock on save/load via
+     `cm:add_loading_game_callback`.
+- **W7 Advisory mode** — per-turn 3-button dilemma at
+  FactionTurnStart (Apply / Skip / Always Apply). Uses
+  `cm:create_dilemma_builder` + 3 `add_choice_payload("FIRST"|"SECOND"|"THIRD")`
+  + `cm:launch_custom_dilemma_from_builder` (the vanilla
+  `mc_peg_street_pawnshop` 3-button pattern). A
+  `DilemmaChoiceMadeEvent` listener gates whether the W6 step
+  dispatch runs. "Always Apply" sets `advisory_auto_accept = true`
+  so future turns auto-apply without prompting.
+- **New W7 settings** (MCT dropdowns + strings):
+  - `wingman_ai_mode` (off | advisory | autopilot)
+  - `wingman_ai_autopilot_personality` (CAI personality key, default
+    `wh3_combi_legendary_default`)
+  - `wingman_ai_takeback_hotkey` (esc | none)
+  - `wingman_ai_advisory_dilemma_key` (dilemma key, default
+    `wingman_advisory_default`)
+- **New UI asset**: `ui/campaign ui/wingman_banner.twui.xml` —
+  the persistent banner with a text label and a "Take Back Control"
+  button (id = `button_take_back`). The Lua side listens for
+  `ComponentLClickUp` with that id and calls
+  `wingman_ai.release_autopilot()`.
+- **New tests**: `tests/manual/test_w7_autopilot.py` — 10 focused
+  tests covering engage, release, advisory toggle, save/load
+  round-trip, personality propagation, dilemma firing,
+  banner show/hide, take-back button, ESC take-back.
+- **New runnable scenarios**: S11d (Autopilot) and S11e (Advisory)
+  in `tests/manual/wingman_scenarios.md`. Quick smoke list now
+  includes both; evidence checklist now has 12 rows.
+
+### Honest scope note (W7)
+- Autopilot mode is a *scripted-order driver + UI lock + CAI
+  personality rewrite*, NOT a literal `cm:set_faction_human`
+  ownership flip (no such API exists in TWW3 — confirmed in vanilla
+  source).
+- The "ESC hold for 3 seconds" is the engine's responsibility for
+  when it fires the callback; the Lua side just handles the
+  callback when it fires.
+- `wingman_ai_autopilot_personality` is a CAI personality key, not
+  a CAI script context value. The 2 systems coexist: the personality
+  key controls which ai_personalities row is loaded for the
+  faction; the context value (`"ALPHA"`) controls which CAI
+  evaluation profile is used. Both are applied for defense-in-depth.
+- The banner uses the simplest possible layout: one label + one
+  button. A future polish pass could add a faction-flag icon and
+  a settings cog, but the tested contract is show/hide + take-back
+  click only.
+- The take-back button's on-click effect is reversible: clicking
+  it again does nothing (autopilot is off). Re-engaging autopilot
+  re-mounts the banner via `core:get_or_create_component` (the
+  engine reuses the existing component if it's still alive).
+
 ## [Unreleased] — W6
 
 ### Added

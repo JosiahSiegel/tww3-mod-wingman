@@ -5,6 +5,8 @@ Let an AI co-pilot take the stick on your campaign and battles. Set rules, turn 
 ## Features
 
 - **Active AI Controller** — Wingman doesn't just hand the turn back; it actively *moves your armies* toward enemies, *queues* building slots, *recruits*, and *attacks*. Stays within a per-turn order budget for safety.
+- **W7 Autopilot mode** — full UI lock + CAI personality swap + scripted orders. Click "Take Back Control" on the banner (or hold ESC 3s) to take back control anytime. The closest you can get to "AI plays my turn" in TWW3 without a literal ownership-flip API.
+- **W7 Advisory mode** — at the start of each FactionTurnStart, Wingman surfaces a 3-button dilemma (Apply / Skip / Always Apply). You decide each turn whether the AI runs its plan.
 - **Campaign Auto-Pilot** — Wingman auto-ends your turns so AI factions play uninterrupted while you watch.
 - **Battle Takeover** — choose from scripted AI fighting, autoresolve-if-favorable, pause-to-choose, or just spectate.
 - **Rules & Limits** — turn caps, custom victory conditions (own these settlements / destroy these factions), banned-faction watcher.
@@ -29,7 +31,7 @@ If you want to build the mod from source and test changes locally (contributors,
 
 - **[`tests/manual/LOCAL_TESTING.md`](tests/manual/LOCAL_TESTING.md)** — end-to-end local testing guide: pack build (pure-Python), install, script-logging setup, iterative dev loop, lupa pre-launch smoke test (`scripts/lupa_smoke.py`), common pitfalls, evidence capture protocol.
 - **[`pack/BUILD_INSTRUCTIONS.md`](pack/BUILD_INSTRUCTIONS.md)** — pack build steps (`scripts/build_pack.py`) + Workshop upload flow.
-- **[`tests/manual/wingman_scenarios.md`](tests/manual/wingman_scenarios.md)** — 10 manual test scenarios (S1–S10) with binary pass/fail and evidence paths.
+- **[`tests/manual/wingman_scenarios.md`](tests/manual/wingman_scenarios.md)** — 12 manual test scenarios (S1–S10 + S11d Autopilot + S11e Advisory) with binary pass/fail and evidence paths.
 - **[`.github/workflows/release.yml`](.github/workflows/release.yml)** — automated CI build + Steam Workshop publish workflow.
 
 ### Continuous Integration (GitHub Actions)
@@ -56,7 +58,7 @@ The repo includes a `.github/workflows/release.yml` workflow that automates buil
 - **Multiplayer**: Wingman disables itself automatically to prevent desyncs.
 - **Diplomacy popups**: by default Wingman pauses if a diplomacy panel appears (this is the #1 cause of crashes in similar mods).
 - **Battle results**: Wingman auto-dismisses the post-battle results screen only when safe; otherwise hands back to you.
-- **Emergency stop**: Open MCT → Wingman → toggle `wingman_enabled` off.
+- **Emergency stop**: Open MCT → Wingman → toggle `wingman_enabled` off. (For W7 Autopilot mode specifically: click the "Take Back Control" button on the in-game banner, or hold ESC for 3 seconds.)
 
 ## How It Works
 
@@ -78,6 +80,37 @@ Wingman doesn't "give" your faction to the AI (the game has no such API for play
 You become a spectator with full vision. You can take back control anytime by toggling Wingman off (or use **periodic breakpoints** to be handed control every N turns).
 
 > **Honest scope (W6 AI Controller).** It's a *scripted-order driver + personality rewrite*, not a literal AI take-over. TWW3 has no `cm:set_faction_human` API to literally transfer ownership; we use the closest equivalent (`cm:cai_set_faction_script_context`). Inside battles, the real AI planner still makes tactical decisions. The controller handles the visible parts: movement, attack, recruitment, building, research, rites, diplomacy. See `tests/manual/wingman_scenarios.md` → **S11 / S11b / S11c** for what passes / fails.
+
+## W7 Modes: Autopilot & Advisory
+
+W7 adds two new modes that build on the W6 controller. The mode is selected in MCT → Wingman → Campaign Handover → `wingman_ai_mode`:
+
+### Autopilot (full lock)
+
+When the user sets `wingman_ai_mode = autopilot`, Wingman engages full UI lock + CAI personality rewrite on the player faction:
+
+- `cm:steal_user_input(true)` — all keyboard input is routed to script (the player can still move the camera; mouse and gamepad still work).
+- `uim:override("end_turn"):set_allowed(false)` + `cm:override_ui("disable_end_turn", true)` + `cm:disable_end_turn(true)` — the CA-blessed 3-call end-turn lock pattern. The first call persists across save/load; the other two are per-call.
+- `cm:force_change_cai_faction_personality(local_faction, chosen_personality)` + `cm:cai_set_faction_script_context(local_faction, "ALPHA")` — defense-in-depth: the explicit personality swap changes which `ai_personalities` row is loaded for the faction; the script context change tells the engine to use the highest-skill evaluation profile.
+- `core:get_or_create_component("wingman_banner", ...)` + `SetVisible(true)` — the "Wingman in Control — click to take back" banner appears. The banner has a button (`button_take_back`) that fires `ComponentLClickUp` → `release_autopilot()`.
+- `cm:steal_escape_key_with_callback("wingman_esc", on_esc_take_back, false)` — the player can also hold ESC for 3 seconds to take back control.
+- `cm:set_saved_value("wingman_ai_autopilot_active", true)` + `cm:add_loading_game_callback(...)` — the lock persists across save/load and re-applies automatically on load.
+
+To exit Autopilot, the user can either (a) click the "Take Back Control" button on the banner, (b) hold ESC for 3 seconds, or (c) toggle `wingman_ai_mode` to "off" in MCT. All three paths call `wingman_ai.release_autopilot()`, which reverses every lock.
+
+### Advisory (per-turn confirmation)
+
+When the user sets `wingman_ai_mode = advisory`, at the start of each FactionTurnStart for the player faction, Wingman fires a 3-button dilemma (Apply / Skip / Always Apply):
+
+- `cm:create_dilemma_builder("wingman_advisory_default")` + 3 `add_choice_payload("FIRST"|"SECOND"|"THIRD", payload)` + `cm:launch_custom_dilemma_from_builder(builder, faction)` — the canonical TWW3 3-button prompt pattern (vanilla `mc_peg_street_pawnshop.lua:41-117`).
+- A `DilemmaChoiceMadeEvent` listener gates whether the W6 step dispatch runs:
+  - **Apply** (choice 1) — run the W6 step dispatch this turn.
+  - **Skip** (choice 2) — set `state.skip_remaining_steps = true`; `run_for_local_faction` bails out before any orders are issued.
+  - **Always Apply** (choice 3) — run the W6 step dispatch AND set `state.advisory_auto_accept = true` so future turns auto-apply without showing the dilemma (until the user toggles the mode off).
+
+Advisory mode is non-locking by design — the player can still interact with the campaign UI at any time. The W6 step dispatch is gated only on the user's per-turn choice.
+
+See `tests/manual/wingman_scenarios.md` → **S11d** (Autopilot) and **S11e** (Advisory) for the runnable TDD scenarios.
 
 ## Known Limitations (v0.1 alpha)
 
