@@ -37,8 +37,9 @@ When you're short on time, run these four in order. They cover boot, core orches
 3. **S6** — Save/load persistence. Confirms state restoration.
 4. **S3** — Turn cap. Confirms the rule engine.
 5. **S10** — MP guard. Confirms the safety floor.
+6. **S11** — AI Controller. Confirms Wingman actively moves your armies (not just hands the turn back).
 
-If S7, S1, S6, S3, and S10 all pass, the mod is bootable and the core paths work. Defer S2, S4, S5, S8, S9 to a deeper pass before each release.
+If S7, S1, S6, S3, S10, and S11 all pass, the mod is bootable and the core paths work. Defer S2, S4, S5, S8, S9 to a deeper pass before each release.
 
 ---
 
@@ -469,6 +470,100 @@ If S7, S1, S6, S3, and S10 all pass, the mod is bootable and the core paths work
 
 ---
 
+## S11 — AI Controller for player faction (W5)
+
+**Objective**: Verify the new `wingman_ai.lua` issues scripted orders on behalf of the player's faction at `FactionTurnStart` — i.e. "Wingman takes the stick" actually moves armies, queues buildings, recruits, and attacks enemies, not just ends your turn and walks away.
+
+> **HONEST SCOPE BOX — read before failing this scenario.**
+>
+> This module is a **passive script-order driver**, not a real AI personality.
+> TWW3 has no API to transfer faction ownership (`cm:set_faction_human`
+> exists but is undocumented and unsafe for player factions; `cm:force_declare_war`
+> does not exist; `cm:force_recruit_unit`, `cm:order_move_to_settlement`,
+> and `cm:construct_building` are the documented routes).
+>
+> What S11 verifies:
+> - Idle armies are *ordered* to move toward an enemy region (not "decided"
+>   by a real AI).
+> - Each owned settlement receives at least one queue-building attempt.
+> - Recruitment runs when a `RECRUIT_TARGET_KEY` is configured (it is `nil`
+>   by default — see "Caveat" below).
+>
+> What S11 explicitly does NOT verify (and will fail if you score them as bugs):
+> - Tactical decisions inside battles (real AI planner still runs there).
+> - Diplomacy choices (no API).
+> - Hero skill points, technologies, rites (no API).
+> - Declarations of war (no `cm:force_declare_war`).
+> - Hero / agent actions beyond recruit (no API).
+>
+> This scenario is "did orders get queued", not "did the AI play your campaign
+> perfectly". A passing result is: visible movement orders on at least one
+> idle army within 3 turns. A failing result is: zero orders issued, errors
+> in the log, or the AI controller failed to register.
+
+**Setup**:
+- New Immortal Empires single-player campaign (Reikland suggested).
+- In MCT → Wingman settings:
+  - `wingman_enabled` = **true**
+  - `wingman_campaign_handover_enabled` = **true**
+  - `wingman_ai_enabled` = **true**
+  - `wingman_ai_aggression` = **aggressive** (default)
+  - `wingman_ai_orders_per_turn` = **12** (default)
+  - `wingman_auto_end_turn_delay_seconds` = **2**
+  - `wingman_break_on_diplomacy_panel` = **false** (so the run is uninterrupted)
+- Script logging enabled.
+
+**Steps**:
+1. End the player's first turn manually. Wingman auto-ends it within 2 s.
+2. Let AI factions play out 2–3 turns (don't peek inside).
+3. Reopen the campaign. Observe the campaign map: at least one of your idle
+   armies should have a movement order issued (a faint outline + movement
+   arrow visible on the campaign map).
+4. Inspect the most recent `script_log_*.txt`.
+
+**Pass condition** (binary):
+- Log shows, on the local-faction `FactionTurnStart` turns:
+  - `[Wingman][AI] register_listeners: ok` (once, at init)
+  - `[Wingman][AI] AI run: turn=N aggression=aggressive budget=12` (each turn)
+  - `[Wingman][AI] AI done: moved=A built=B recruited=C errors=none` (each turn, with at least one of A/B non-zero after turn 1)
+  - No `ERROR_SAFE: wingman_ai:` line in the log.
+  - No repeated `WARN: safe_order(...):` lines (one-off misses are fine).
+- Visual: at least one of your armies has an issued movement order (visible
+  move arrow / paused-at-waypoint icon) within the first 3 turns.
+
+**Caveat — recruitment is OFF by default**: `RECRUIT_TARGET_KEY` is set to
+`nil` in `wingman_ai.lua` because no faction-safe literal unit_key can be
+used (the engine doesn't expose `main_units` tables to script). Recruiting
+generic infantry in one faction would crash another. To enable recruitment,
+you'll need to extend the module with a per-faction `unit_key` table, which
+W5 deliberately defers. S11 fails-open on recruitment — missing recruitment
+is not a fail.
+
+**Evidence**:
+- `evidence/s11_ai_log.log` — log showing the AI run lines per turn.
+- `evidence/s11_ai_after_3_turns.png` — campaign-map screenshot showing the
+  issued move order arrow.
+
+**Fail signals**:
+- `ERROR_SAFE: wingman_ai:` appearing on the first turn → an `cm:` API
+  in `wingman_ai.lua` doesn't exist in your TWW3 patch. The first throw
+  trips error-safe mode (by design). Find which `safe_order(...)` line
+  logged and file the missing API as a bug. The `trip_error` path is
+  implemented to prevent follow-on orders from being issued.
+- `AI done: moved=0 built=0 recruited=0 errors=none` for several turns →
+  either all armies are already moving (so `character_is_idle` rejects
+  them — expected on turn 1 only) or `classify_region` is failing (log
+  should show `step_move_armies: no enemy region found`).
+- `order_count_this_turn` reaches the cap every turn → orders are
+  working but you have many armies; expected behavior. Not a fail.
+
+**Cross-references**: build on S1 (campaign handover must be on). After
+S11 passes, set `wingman_ai_orders_per_turn` to `1` and confirm the AI
+still moves at least one army per turn — that's a stress test for the
+budget enforcement.
+
+---
+
 ## Evidence checklist
 
 Use this table to track which artifacts you have at the end of a test pass. Mark each cell ✓/✗ and link to the file.
@@ -485,6 +580,7 @@ Use this table to track which artifacts you have at the end of a test pass. Mark
 | S8 diplomacy | | | | | | |
 | S9 result dismiss | n/a | n/a | | | | |
 | S10 MP guard | n/a | n/a | | | | |
+| S11 AI controller | | | | | | |
 
 A release is **READY** for Steam Workshop upload only when:
 

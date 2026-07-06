@@ -4,6 +4,7 @@ Let an AI co-pilot take the stick on your campaign and battles. Set rules, turn 
 
 ## Features
 
+- **Active AI Controller** — Wingman doesn't just hand the turn back; it actively *moves your armies* toward enemies, *queues* building slots, *recruits*, and *attacks*. Stays within a per-turn order budget for safety.
 - **Campaign Auto-Pilot** — Wingman auto-ends your turns so AI factions play uninterrupted while you watch.
 - **Battle Takeover** — choose from scripted AI fighting, autoresolve-if-favorable, pause-to-choose, or just spectate.
 - **Rules & Limits** — turn caps, custom victory conditions (own these settlements / destroy these factions), banned-faction watcher.
@@ -59,7 +60,14 @@ The repo includes a `.github/workflows/release.yml` workflow that automates buil
 
 ## How It Works
 
-Wingman doesn't "give" your faction to the AI (the game has no such API — your faction stays under your control). Instead, it **automates your turn**: each time your turn starts, Wingman evaluates your rules, optionally dismisses popups, and ends your turn so the AI factions play through. You become a spectator with full vision. You can take back control anytime by toggling Wingman off.
+Wingman doesn't "give" your faction to the AI (the game has no such API for player factions, so ownership stays with you). What it **does** is issue scripted orders on your behalf:
+
+1. **AI Controller** (W5, default on) — at the start of each of your turns, Wingman *moves* your idle armies toward enemy regions, *queues* a building in each of your settlements, *recruits* (when a safe unit_key is configured), and ends the turn. Your armies actually move on the campaign map.
+2. **Turn automation** — after orders are queued, Wingman evaluates your rules (turn cap, custom win, faction bans, periodic break), optionally dismisses popups, and calls `cm:end_turn()` so the AI factions take their turns.
+
+You become a spectator with full vision. You can take back control anytime by toggling Wingman off (or use **periodic breakpoints** to be handed control every N turns).
+
+> **Honest scope (W5 AI Controller).** It's a *scripted-order driver*, not a real AI personality. TWW3 has no API to transfer your faction to AI control. Inside battles, the real AI planner still makes tactical decisions. Diplomacy, rites, techs, hero skill picks, and war declarations are not script-driven — they use vanilla logic. The AI Controller handles the visible parts: movement, recruitment, building. See `tests/manual/wingman_scenarios.md` → **S11** for what passes / fails.
 
 ## Known Limitations (v0.1 alpha)
 
