@@ -434,6 +434,28 @@ def main() -> int:
         return 1
     print(f"  OK: take-back button released autopilot")
 
+    # --- Test 10: ESC-hold-3-seconds take-back via steal_escape_key ---
+    # When autopilot engages, the production code must register an ESC
+    # key callback via cm:steal_escape_key_with_callback. The callback
+    # (when fired) must call wingman_ai.release_autopilot(). The 3-second
+    # hold is a production-only behavior (real time); in tests we
+    # simulate the callback firing and assert that autopilot releases.
+    print("\n[10] ESC-hold-3-seconds take-back via steal_escape_key_with_callback")
+    lua.eval("wingman_ai.release_autopilot()")  # clean slate
+    lua.eval("wingman_ai.engage_autopilot()")
+    # The smoke stub stashes the registered callback in _G.w7_esc_callbacks.
+    esc_cb = lua.eval("_G.w7_esc_callbacks and _G.w7_esc_callbacks['wingman_esc']")
+    if esc_cb is None:
+        print(f"  FAIL: engage_autopilot did not register 'wingman_esc' callback")
+        return 1
+    # Fire the callback (simulating the engine calling it when ESC is
+    # held for 3 seconds in the real game).
+    lua.eval("(function() if _G.w7_esc_callbacks and _G.w7_esc_callbacks['wingman_esc'] then _G.w7_esc_callbacks['wingman_esc']() end end)()")
+    if lua.eval("wingman_ai.is_autopilot_active()"):
+        print(f"  FAIL: is_autopilot_active() still true after ESC callback fired")
+        return 1
+    print(f"  OK: ESC callback released autopilot")
+
     print("\n---")
     print("ALL W7 TESTS PASS")
     return 0

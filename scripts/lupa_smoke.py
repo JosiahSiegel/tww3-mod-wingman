@@ -162,6 +162,17 @@ _G.cm = {
     steal_escape_key      = function(self, b) return true end,
     disable_end_turn      = function(self, b) return true end,
     override_ui           = function(self, key, b) return true end,
+    -- W7: ESC-hold-3-seconds take-back. The production code calls
+    -- cm:steal_escape_key_with_callback(name, callback, is_persistent)
+    -- which routes the ESC key to the callback when pressed. The
+    -- smoke stub records the registration and exposes a helper to
+    -- fire the callback so tests can exercise the take-back path.
+    steal_escape_key_with_callback = function(self, name, cb, is_persistent)
+        if not _G.w7_esc_callbacks then _G.w7_esc_callbacks = {} end
+        _G.w7_esc_callbacks[name] = cb
+        return true
+    end,
+    release_escape_key = function(self, name) return true end,
     -- W7: Advisory mode 3-button dilemma. Per the mc_peg_street_pawnshop
     -- vanilla pattern (3 payloads, FIRST/SECOND/THIRD), used by Advisory
     -- mode to ask the player "Apply / Skip / Always Apply?" per turn.
