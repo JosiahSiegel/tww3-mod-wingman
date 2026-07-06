@@ -48,7 +48,12 @@ PFH5_MAGIC = b"PFH5"
 PF_TYPE_MOD = 0x03
 
 # Source roots inside the repo that go into the pack.
-SOURCE_ROOTS = ["script", "text"]
+# "pack" contains RPFM reserved files (notes, dependencies_manager_v2,
+# settings) that ALL working packs have. The notes.rpfm_reserved contains
+# a GUID that identifies the mod to the CA launcher -- without it, the
+# launcher may silently ignore the pack. Working packs (groovy_mct,
+# sm0_recruit_defeated) all have these three files at the pack root.
+SOURCE_ROOTS = ["script", "text", "pack"]
 
 
 def find_source_files(repo_root: Path) -> list[tuple[str, Path]]:
