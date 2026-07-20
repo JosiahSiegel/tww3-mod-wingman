@@ -18,6 +18,16 @@ Lua 5.1 only. Never throws.
 
 wingman_campaign = {}
 
+-- Load-order guard. wingman_campaign depends on wingman_state and
+-- wingman_listeners. See lupa_smoke.py SOURCE_FILES for the canonical
+-- load order; this guard catches a future re-order with a clear error.
+if type(wingman_state) ~= "table" then
+    error("wingman_campaign.lua: wingman_state must be loaded before this module (see lupa_smoke.py SOURCE_FILES)")
+end
+if type(wingman_listeners) ~= "table" then
+    error("wingman_campaign.lua: wingman_listeners must be loaded before this module (see lupa_smoke.py SOURCE_FILES)")
+end
+
 -- ---------------------------------------------------------------------------
 -- Constants
 -- ---------------------------------------------------------------------------
