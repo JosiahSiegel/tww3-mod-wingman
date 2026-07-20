@@ -309,8 +309,23 @@ local function json_encode(value)
             else
                 local keys = {}
                 for k, _ in pairs(v) do keys[#keys + 1] = k end
-                -- Manual sort because keys may be strings, not numeric indices.
-                table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+                -- Sort keys for deterministic output. Numeric keys come
+                -- first and sort by value; string keys sort
+                -- lexicographically. Without this, the keys {1, 2, 10}
+                -- would serialize as "1", "10", "2" because tostring()
+                -- coerces all of them to strings.
+                table.sort(keys, function(a, b)
+                    local ta, tb = type(a), type(b)
+                    if ta == "number" and tb == "number" then
+                        return a < b
+                    elseif ta == "number" then
+                        return true
+                    elseif tb == "number" then
+                        return false
+                    else
+                        return tostring(a) < tostring(b)
+                    end
+                end)
                 for _, k in ipairs(keys) do
                     local key_str
                     if type(k) == "number" then
@@ -329,6 +344,9 @@ local function json_encode(value)
 
     return encode_value(value, "")
 end
+
+-- Expose the encoder for tests + future callers. Read-only public alias.
+wingman_state.json_encode = json_encode
 
 local function json_decode(s)
     if type(s) ~= "string" or s == "" then return nil end
