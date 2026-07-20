@@ -82,3 +82,139 @@ You become a spectator with full vision. Take back control anytime via toggle, b
 ## License
 
 [MIT](./LICENSE) — this mod contains no Games Workshop or Creative Assembly intellectual property, only original Lua code.
+
+## Public Lua API (for contributors and downstream modders)
+
+Every module below is loaded by the campaign loader. None of these APIs
+require `core` or `cm` to be present at load time — they're safe to
+import from any Lua context (including tests).
+
+### `wingman_constants` — single source of truth for stringly-typed values
+
+Holds every string constant used in 2+ Lua files. Use these instead of
+string literals; if you find yourself typing `"scripted_ai"` or
+`"aggressive"` anywhere, look it up here.
+
+```lua
+local C = wingman_constants
+
+-- Battle control modes (wingman_battle_control_mode setting)
+C.MODE_SCRIPTED_AI             -- "scripted_ai"
+C.MODE_AUTORESOLVE_IF_FAVORABLE -- "autoresolve_if_favorable"
+C.MODE_PAUSE_TO_CHOOSE         -- "pause_to_choose"
+C.MODE_MANUAL_OBSERVE          -- "manual_observe"
+
+-- Aggression profiles (wingman_ai_aggression setting)
+C.AGGRESSION_DEFENSIVE         -- "defensive"
+C.AGGRESSION_BALANCED          -- "balanced"
+C.AGGRESSION_AGGRESSIVE        -- "aggressive"
+
+-- Setting key names (read these to avoid stringly-typed lookups)
+C.SETTINGS.WINGMAN_ENABLED
+C.SETTINGS.WINGMAN_AI_ORDERS_PER_TURN
+C.SETTINGS.WINGMAN_AI_DIFFICULTY
+C.SETTINGS.WINGMAN_AI_AGGRESSION
+C.SETTINGS.WINGMAN_BATTLE_CONTROL_MODE
+C.SETTINGS.WINGMAN_DEBUG_LOGGING
+
+-- Validators
+C.is_battle_mode(value)        -- true for the 4 valid modes
+C.is_aggression(value)         -- true for the 3 valid profiles
+```
+
+### `wingman_listeners` — central event-listener registry
+
+Use this for every `core:add_listener` call. Tracks registered names
+and provides bulk removal on save/load. Idempotent on re-registration.
+
+```lua
+-- Register a listener. Returns true on success, false on engine error.
+wingman_listeners.register(
+    name,      -- string, unique within the mod
+    event,     -- string, engine event ("FactionTurnStart", ...)
+    condition, -- typically true; or a function returning bool
+    callback,  -- function(context) called when the event fires
+    persist    -- bool (optional, default false): survive save/load
+)
+
+-- Remove a single listener
+wingman_listeners.unregister(name)
+
+-- Bulk-remove every tracked listener. Returns the count of remove
+-- ATTEMPTS (success or failure). Use this from your mod's shutdown
+-- path or on save/load to avoid leaks.
+local n_removed = wingman_listeners.unregister_all()
+
+-- Diagnostics
+wingman_listeners.count()                       -- number tracked
+wingman_listeners.is_registered(name)           -- bool
+wingman_listeners.list_names()                  -- array of strings
+local n_tracked, n_dupes = wingman_listeners.diagnostics()
+```
+
+### `wingman_state` — settings + state persistence
+
+`SCHEMA_VERSION` is the version of the on-disk schema. When you bump
+it, add a `MIGRATIONS[new_version]` entry.
+
+```lua
+-- Read the current schema
+wingman_state.SCHEMA_VERSION   -- number, currently 1
+
+-- Read the full settings table (defaults + persisted + MCT)
+wingman_state.get_settings()   -- table
+
+-- Update settings with validation + clamping
+local validated = wingman_state.update_settings({
+    wingman_ai_orders_per_turn = 8,
+    wingman_battle_control_mode = wingman_constants.MODE_AUTORESOLVE_IF_FAVORABLE,
+})
+
+-- JSON encode (for diagnostic dumps / test fixtures)
+wingman_state.json_encode(value)  -- string
+
+-- Read defaults without a get_settings() round-trip
+wingman_state.DEFAULTS   -- table (read-only)
+
+-- Schema migration hook (for the next maintainer who bumps SCHEMA_VERSION)
+wingman_state.MIGRATIONS = {
+    -- [2] = function(settings) ... return settings end,
+}
+-- Test it with:
+wingman_state.migrate_settings(saved_settings, from_version, to_version)
+```
+
+### Load order (for custom loaders)
+
+`lupa_smoke.py` is the canonical loader. If you write your own
+loader, the order is:
+
+1. `wingman_constants.lua`    (no deps)
+2. `wingman_listeners.lua`    (no deps)
+3. `wingman_state.lua`        (needs wingman_constants)
+4. `wingman_safety.lua`       (needs wingman_listeners)
+5. `wingman_missions.lua`
+6. `wingman_rules.lua`
+7. `wingman_ai.lua`           (needs wingman_state, wingman_listeners, wingman_constants)
+8. `wingman_campaign.lua`     (needs wingman_state, wingman_listeners)
+9. `wingman_battle.lua`       (needs wingman_state, wingman_listeners)
+10. `wingman_init.lua`
+11. `wingman_battle_init.lua` (battle-side)
+12. `wingman_mct.lua`         (MCT settings UI)
+
+Each module that depends on another runs an `if type(X) ~= "table" then
+error(...) end` guard at load time. Loading a consumer before its
+dependency produces a clear error, not a delayed nil deref.
+
+### Test surface
+
+Tests live in `tests/manual/`. Run them all with:
+
+```bash
+python3 scripts/lupa_smoke.py
+for t in tests/manual/test_*.py; do python3 "$t"; done
+```
+
+Each test file is standalone and uses lupa to load the campaign
+modules with engine stubs. The pattern is identical to
+`tests/manual/test_w6_ai_features.py`.
