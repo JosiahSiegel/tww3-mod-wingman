@@ -1094,15 +1094,85 @@ local function step_attack_adjacent(local_faction, local_faction_key)
         elseif not character_has_military_force(c) then
             -- no army → skip
         else
-            -- Pick first enemy char and attack.
-            local target = state.cached_enemy_chars[1]
-            if target and target.cqi then
-                local target_lookup = char_lookup(target.cqi)
-                if target_lookup then
-                    local ok_atk, why = order_attack_army(c, target_lookup)
-                    if ok_atk then attacked = attacked + 1
-                    else debug("attack: rejected: " .. tostring(why)) end
+            -- Find an ADJACENT enemy character. The pre-fix code
+            -- blindly picked cached_enemy_chars[1], so every idle
+            -- army attacked the same first target regardless of
+            -- distance. Now we iterate enemies and pick the first
+            -- one whose region is adjacent to ours.
+            --
+            -- Path: friendly char c -> military_force -> region -> name
+            --       enemy char    -> military_force -> region -> name
+            -- then cm:are_regions_adjacent(my_rk, enemy_rk).
+            --
+            -- If adjacency cannot be determined (API missing), fall
+            -- back to the first enemy in iteration order — strictly
+            -- better than the old "always [1]" because each char
+            -- still picks the first; but the log line documents the
+            -- fallback.
+            local my_rk = nil
+            local ok_mf, my_mf = pcall(function()
+                if type(c.military_force) == "function" then return c:military_force() end
+                return nil
+            end)
+            if ok_mf and my_mf and type(my_mf.region) == "function" then
+                local ok_r, my_region = pcall(my_mf.region, my_mf)
+                if ok_r and my_region and type(my_region.name) == "function" then
+                    local ok_n, n = pcall(my_region.name, my_region)
+                    if ok_n and n then my_rk = n end
                 end
+            end
+
+            local target = nil
+            local target_lookup = nil
+            for _, cand in ipairs(state.cached_enemy_chars) do
+                if cand and cand.cqi then
+                    local cand_lookup = char_lookup(cand.cqi)
+                    if cand_lookup then
+                        -- Determine whether cand is in a region adjacent
+                        -- to my_rk. If my_rk is unknown (engine API
+                        -- missing), accept the first candidate and
+                        -- document the fallback.
+                        if not my_rk then
+                            target = cand
+                            target_lookup = cand_lookup
+                            break
+                        end
+                        local ok_em, enemy_mf = pcall(function()
+                            if type(cand_lookup.military_force) == "function" then
+                                return cand_lookup:military_force()
+                            end
+                            return nil
+                        end)
+                        local enemy_rk = nil
+                        if ok_em and enemy_mf and type(enemy_mf.region) == "function" then
+                            local ok_er, enemy_region = pcall(enemy_mf.region, enemy_mf)
+                            if ok_er and enemy_region and type(enemy_region.name) == "function" then
+                                local ok_en, en = pcall(enemy_region.name, enemy_region)
+                                if ok_en and en then enemy_rk = en end
+                            end
+                        end
+                        if enemy_rk and cm and type(cm.are_regions_adjacent) == "function" then
+                            local ok_aa, adj = pcall(cm.are_regions_adjacent, cm, my_rk, enemy_rk)
+                            if ok_aa and adj then
+                                target = cand
+                                target_lookup = cand_lookup
+                                break
+                            end
+                            -- not adjacent; try next
+                        else
+                            -- No adjacency API → fall back to first candidate.
+                            target = cand
+                            target_lookup = cand_lookup
+                            debug("step_attack_adjacent: are_regions_adjacent unavailable; using first enemy as fallback")
+                            break
+                        end
+                    end
+                end
+            end
+            if target and target_lookup then
+                local ok_atk, why = order_attack_army(c, target_lookup)
+                if ok_atk then attacked = attacked + 1
+                else debug("attack: rejected: " .. tostring(why)) end
             end
         end
     end
@@ -1278,10 +1348,14 @@ local function step_diplomacy(local_faction_key)
                 if agg == AGGRESSION_AGGRESSIVE then
                     -- Offer trade first (cheap, doesn't escalate).
                     local ok_t, _ = order_force_make_trade_agreement(local_faction_key, n2)
-                    if not ok_t then
-                        -- Engine rejected; not interesting; try nothing else.
+                    if ok_t then
+                        -- Only count successful trade offers. The pre-fix
+                        -- code incremented actions_taken even when the
+                        -- engine rejected, which hit the diplomacy budget
+                        -- cap immediately for factions at war with many
+                        -- enemies (no actual diplomacy happened).
+                        actions_taken = actions_taken + 1
                     end
-                    actions_taken = actions_taken + 1
                 end
             end
         end
@@ -1421,99 +1495,115 @@ local function step_construct_buildings(local_faction_key)
         if not budget_left() then break end
         if state.error_seen_this_turn then break end
         local ok_r, r = pcall(regions_tbl.item_at, regions_tbl, i)
-        if not ok_r or not r then goto continue end
-        if classify_region(r, local_faction_key) ~= "owned" then
-            goto continue
-        end
-        local rk = region_key(r)
-        if not rk then goto continue end
-
-        -- Get the settlement interface (TWW3 region objects expose a
-        -- :settlement() accessor). This is the engine-side settlement
-        -- that holds slots + building_list. Pcall-guarded.
-        local ok_s, settlement = pcall(function()
-            if type(r.settlement) == "function" then return r:settlement() end
-            return nil
-        end)
-        if not ok_s or not settlement then goto continue end
-        if type(settlement.is_null_interface) == "function" and settlement:is_null_interface() then
-            goto continue
-        end
-
-        -- Look for a slot that's empty. Slots live in settlement:slot_list().
-        local ok_sl, slot_list = pcall(function()
-            if type(settlement.slot_list) == "function" then return settlement:slot_list() end
-            return nil
-        end)
-        if not ok_sl or not slot_list or type(slot_list.num_items) ~= "function" then
-            goto continue
-        end
-        local ok_sln, slot_count = pcall(slot_list.num_items, slot_list)
-        if not ok_sln then goto continue end
-        slot_count = tonumber(slot_count) or 0
-
-        for s_i = 0, slot_count - 1 do
-            if not budget_left() then break end
-            local ok_slot, slot = pcall(slot_list.item_at, slot_list, s_i)
-            if not ok_slot or not slot then goto slot_continue end
-            if type(slot.is_null_interface) == "function" and slot:is_null_interface() then
-                goto slot_continue
+        local skip_region = (not ok_r or not r)
+        if not skip_region then
+            if classify_region(r, local_faction_key) ~= "owned" then
+                skip_region = true
             end
-
-            -- An "empty" slot has no building_key. We probe via
-            -- slot:building() (returns a null interface if empty) or
-            -- a has_building() predicate. We accept either.
-            local is_empty = false
-            local ok_probe, has_b = pcall(function()
-                if type(slot.has_building) == "function" then
-                    return slot:has_building() == false
-                end
-                if type(slot.building) == "function" then
-                    local b = slot:building()
-                    if b and type(b.is_null_interface) == "function" then
-                        return b:is_null_interface()
-                    end
-                end
-                return true  -- assume empty if we can't tell
+        end
+        if not skip_region then
+            local rk = region_key(r)
+            if not rk then skip_region = true end
+        end
+        if not skip_region then
+            -- Get the settlement interface (TWW3 region objects expose a
+            -- :settlement() accessor). This is the engine-side settlement
+            -- that holds slots + building_list. Pcall-guarded.
+            local ok_s, settlement = pcall(function()
+                if type(r.settlement) == "function" then return r:settlement() end
+                return nil
             end)
-            if ok_probe and has_b == true then is_empty = true end
-            if not is_empty then goto slot_continue end
-
-            -- Pick a building_key. The engine's settlement:buildable
-            -- buildings list (or unitpool) is the right source. As a
-            -- safe default we try cm:pick_random_buildable(settlement)
-            -- if the API exists; otherwise we skip. This is the
-            -- exact place where a future buildings.lua data module
-            -- would inject a faction-specific priority order.
-            local building_key = nil
-            if cm and type(cm.pick_random_buildable) == "function" then
-                local ok_pk, pk = pcall(cm.pick_random_buildable, cm, settlement)
-                if ok_pk and type(pk) == "string" and pk ~= "" then
-                    building_key = pk
+            if not ok_s or not settlement then
+                skip_region = true
+            elseif type(settlement.is_null_interface) == "function" and settlement:is_null_interface() then
+                skip_region = true
+            end
+        end
+        if not skip_region then
+            local rk = region_key(r)
+            -- Look for a slot that's empty. Slots live in settlement:slot_list().
+            local ok_sl, slot_list = pcall(function()
+                if type(settlement.slot_list) == "function" then return settlement:slot_list() end
+                return nil
+            end)
+            if not ok_sl or not slot_list or type(slot_list.num_items) ~= "function" then
+                skip_region = true
+            end
+            if not skip_region then
+                local ok_sln, slot_count = pcall(slot_list.num_items, slot_list)
+                if not ok_sln then
+                    skip_region = true
+                else
+                    slot_count = tonumber(slot_count) or 0
+                    for s_i = 0, slot_count - 1 do
+                        if not budget_left() then break end
+                        local ok_slot, slot = pcall(slot_list.item_at, slot_list, s_i)
+                        local skip_slot = (not ok_slot or not slot)
+                        if not skip_slot then
+                            if type(slot.is_null_interface) == "function" and slot:is_null_interface() then
+                                skip_slot = true
+                            end
+                        end
+                        if not skip_slot then
+                            -- An "empty" slot has no building_key. We probe via
+                            -- slot:building() (returns a null interface if empty) or
+                            -- a has_building() predicate. We accept either.
+                            local is_empty = false
+                            local ok_probe, has_b = pcall(function()
+                                if type(slot.has_building) == "function" then
+                                    return slot:has_building() == false
+                                end
+                                if type(slot.building) == "function" then
+                                    local b = slot:building()
+                                    if b and type(b.is_null_interface) == "function" then
+                                        return b:is_null_interface()
+                                    end
+                                end
+                                return true  -- assume empty if we can't tell
+                            end)
+                            if ok_probe and has_b == true then is_empty = true end
+                            if not is_empty then skip_slot = true end
+                        end
+                        if not skip_slot then
+                            -- Pick a building_key. The engine's settlement:buildable
+                            -- buildings list (or unitpool) is the right source. As a
+                            -- safe default we try cm:pick_random_buildable(settlement)
+                            -- if the API exists; otherwise we skip. This is the
+                            -- exact place where a future buildings.lua data module
+                            -- would inject a faction-specific priority order.
+                            local building_key = nil
+                            if cm and type(cm.pick_random_buildable) == "function" then
+                                local ok_pk, pk = pcall(cm.pick_random_buildable, cm, settlement)
+                                if ok_pk and type(pk) == "string" and pk ~= "" then
+                                    building_key = pk
+                                end
+                            end
+                            if not building_key then skip_slot = true end
+                        end
+                        if not skip_slot then
+                            local rk = region_key(r)
+                            -- Queue the building. cm:add_building_to_settlement_queue
+                            -- is the canonical TWW3 API.
+                            local ok_q, why = safe_order(
+                                string.format("add_building_to_settlement_queue(%s,%s)", rk, building_key),
+                                function()
+                                    if type(cm.add_building_to_settlement_queue) == "function" then
+                                        cm:add_building_to_settlement_queue(slot, building_key)
+                                    end
+                                end)
+                            if ok_q then
+                                built = built + 1
+                                record_decision("build",
+                                    string.format("queued %s in %s", building_key, rk),
+                                    local_faction_key)
+                            else
+                                debug("step_construct_buildings: queue rejected: " .. tostring(why))
+                            end
+                        end
+                    end
                 end
             end
-            if not building_key then goto slot_continue end
-
-            -- Queue the building. cm:add_building_to_settlement_queue
-            -- is the canonical TWW3 API.
-            local ok_q, why = safe_order(
-                string.format("add_building_to_settlement_queue(%s,%s)", rk, building_key),
-                function()
-                    if type(cm.add_building_to_settlement_queue) == "function" then
-                        cm:add_building_to_settlement_queue(slot, building_key)
-                    end
-                end)
-            if ok_q then
-                built = built + 1
-                record_decision("build",
-                    string.format("queued %s in %s", building_key, rk),
-                    local_faction_key)
-            else
-                debug("step_construct_buildings: queue rejected: " .. tostring(why))
-            end
-            ::slot_continue::
         end
-        ::continue::
     end
 
     return built
@@ -1782,41 +1872,47 @@ local function step_diplomatic_reactive(local_faction, local_faction_key)
         if acted >= 1 then break end  -- cap at 1 reactive action per turn
 
         local ok_f, other = pcall(factions_tbl.item_at, factions_tbl, i)
-        if not ok_f or not other then goto continue end
-        if type(other.is_null_interface) == "function" and other:is_null_interface() then
-            goto continue
-        end
-
-        local ok_n2, other_name = pcall(function()
-            if type(other.name) == "function" then return other:name() end
-            return nil
-        end)
-        if not ok_n2 or not other_name or other_name == local_faction_key then
-            goto continue
-        end
-
-        -- Are there pending proposals?
-        local ok_has, has_pending = pcall(cm.faction_has_pending_diplomacy_with, cm, other_name, local_faction_key)
-        if not ok_has or not has_pending then goto continue end
-
-        -- Engine-side: ask the engine to resolve the pending proposal
-        -- for the player. We use cm:trigger_diplomacy_response
-        -- if present; otherwise we accept the engine's default
-        -- (which is usually "accept" for trades / NAPs).
-        if type(cm.trigger_diplomacy_response) == "function" then
-            local ok_t, why = safe_diplomacy(
-                string.format("trigger_diplomacy_response(%s)", other_name),
-                function() cm:trigger_diplomacy_response(other_name, local_faction_key, "accept") end)
-            if ok_t then
-                acted = acted + 1
-                record_decision("diplomacy",
-                    string.format("auto-accepted pending proposal from %s", other_name),
-                    local_faction_key)
-            else
-                debug("step_diplomatic_reactive: trigger rejected: " .. tostring(why))
+        local skip = (not ok_f or not other)
+        if not skip then
+            if type(other.is_null_interface) == "function" and other:is_null_interface() then
+                skip = true
             end
         end
-        ::continue::
+        if not skip then
+            local ok_n2, other_name = pcall(function()
+                if type(other.name) == "function" then return other:name() end
+                return nil
+            end)
+            if not ok_n2 or not other_name or other_name == local_faction_key then
+                skip = true
+            end
+        end
+        if not skip then
+            -- Are there pending proposals?
+            local ok_has, has_pending = pcall(cm.faction_has_pending_diplomacy_with, cm, other_name, local_faction_key)
+            if not ok_has or not has_pending then
+                skip = true
+            end
+        end
+        if not skip then
+            -- Engine-side: ask the engine to resolve the pending proposal
+            -- for the player. We use cm:trigger_diplomacy_response
+            -- if present; otherwise we accept the engine's default
+            -- (which is usually "accept" for trades / NAPs).
+            if type(cm.trigger_diplomacy_response) == "function" then
+                local ok_t, why = safe_diplomacy(
+                    string.format("trigger_diplomacy_response(%s)", other_name),
+                    function() cm:trigger_diplomacy_response(other_name, local_faction_key, "accept") end)
+                if ok_t then
+                    acted = acted + 1
+                    record_decision("diplomacy",
+                        string.format("auto-accepted pending proposal from %s", other_name),
+                        local_faction_key)
+                else
+                    debug("step_diplomatic_reactive: trigger rejected: " .. tostring(why))
+                end
+            end
+        end
     end
 
     return acted
@@ -1876,6 +1972,13 @@ local function step_move_armies(local_faction, local_faction_key)
     for _, c in ipairs(characters) do
         if not budget_left() then break end
         if state.error_seen_this_turn then break end
+        if agg == AGGRESSION_DEFENSIVE and moves_issued >= 1 then
+            -- Defensive aggression caps at 1 move per turn. Break out
+            -- so the cap is actually enforced; the post-loop log line
+            -- used to claim a cap existed but it was a lie — the
+            -- loop kept issuing moves past the first one.
+            break
+        end
         if not character_is_idle(c) then
             -- not idle
         elseif not character_has_military_force(c) then
@@ -1901,7 +2004,11 @@ local function step_move_armies(local_faction, local_faction_key)
     end
 
     if agg == AGGRESSION_DEFENSIVE and moves_issued > 1 then
-        log("defensive aggression capped moves this turn at 1 (issued=" .. tostring(moves_issued) .. ")")
+        -- This branch is now unreachable (the loop breaks at
+        -- moves_issued >= 1 for defensive mode). Kept as a
+        -- sanity check: if the loop ever gets past 1, log it so
+        -- we know the cap regressed.
+        warn("step_move_armies: defensive cap regressed; moves_issued=" .. tostring(moves_issued))
     end
 
     return moves_issued
