@@ -63,6 +63,9 @@ local state = {
 -- ---------------------------------------------------------------------------
 
 local DEFAULTS = {
+-- Exposed publicly at the end of the file as wingman_state.DEFAULTS so
+-- tests and external consumers can read defaults without an internal
+-- accessor.
     -- General
     wingman_enabled                       = false,
     wingman_debug_logging                 = false,
@@ -78,7 +81,7 @@ local DEFAULTS = {
 
     -- Battle Handover
     wingman_battle_handover_enabled       = false,
-    wingman_battle_control_mode           = "scripted_ai",
+    wingman_battle_control_mode           = wingman_constants.MODE_SCRIPTED_AI,
     wingman_battle_plan_bias              = "auto",
     wingman_autoresolve_threshold         = 60,
     wingman_auto_dismiss_battle_results   = true,
@@ -96,7 +99,7 @@ local DEFAULTS = {
     -- AI Controller (W5) — runs on the player's faction to keep the
     -- campaign moving when wingman_campaign_handover_enabled=true.
     wingman_ai_enabled                    = true,
-    wingman_ai_aggression                 = "aggressive",
+    wingman_ai_aggression                 = wingman_constants.AGGRESSION_AGGRESSIVE,
     wingman_ai_orders_per_turn            = 12,
 
     -- AI Controller (W6) — high-skill behavioral surface.
@@ -1058,3 +1061,7 @@ function wingman_state._snapshot()
         last_error          = state.last_error,
     }
 end
+
+-- Expose DEFAULTS for tests + external consumers. Read-only alias.
+wingman_state.DEFAULTS = DEFAULTS
+
