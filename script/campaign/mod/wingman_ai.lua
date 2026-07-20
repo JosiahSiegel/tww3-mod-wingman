@@ -114,6 +114,21 @@ local AGGRESSION_DEFENSIVE  = wingman_constants.AGGRESSION_DEFENSIVE
 local AGGRESSION_BALANCED   = wingman_constants.AGGRESSION_BALANCED
 local AGGRESSION_AGGRESSIVE = wingman_constants.AGGRESSION_AGGRESSIVE
 
+-- Load-order guard. wingman_ai depends on wingman_state, wingman_constants,
+-- and wingman_listeners. If this file is `dofile`'d before any of them, fail
+-- loudly with a clear error rather than producing a confusing nil-deref
+-- later. The smoke test (lupa_smoke.py) loads modules in the right order;
+-- this guard catches a future maintainer who re-orders without thinking.
+if type(wingman_state) ~= "table" then
+    error("wingman_ai.lua: wingman_state must be loaded before this module (see lupa_smoke.py SOURCE_FILES)")
+end
+if type(wingman_listeners) ~= "table" then
+    error("wingman_ai.lua: wingman_listeners must be loaded before this module (see lupa_smoke.py SOURCE_FILES)")
+end
+if type(wingman_constants) ~= "table" then
+    error("wingman_ai.lua: wingman_constants must be loaded before this module (see lupa_smoke.py SOURCE_FILES)")
+end
+
 local DEFAULT_ORDERS_PER_TURN = 8
 local MIN_ORDERS_PER_TURN = 1
 local MAX_ORDERS_PER_TURN = 50

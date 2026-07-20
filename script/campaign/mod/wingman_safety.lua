@@ -18,6 +18,13 @@ Lua 5.1 only. Never throws.
 
 wingman_safety = {}
 
+-- Load-order guard. wingman_safety depends on wingman_listeners. See
+-- lupa_smoke.py SOURCE_FILES for the canonical load order; this guard
+-- catches a future re-order with a clear error.
+if type(wingman_listeners) ~= "table" then
+    error("wingman_safety.lua: wingman_listeners must be loaded before this module (see lupa_smoke.py SOURCE_FILES)")
+end
+
 -- Listener handles for clean removal. Format: { event_name = "listener_name" }.
 local LISTENER_NAMES = {
     panel        = "wingman_safety_panel",
