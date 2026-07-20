@@ -2244,8 +2244,10 @@ function wingman_ai.register_listeners()
     end
 
     local ok = wingman_listeners.register(
-        LISTENER_NAME, "FactionTurnStart", true,
+        LISTENER_NAME, "FactionTurnStart",
         function(ctx)
+            -- Condition: only fire the AI for the local faction's turn.
+            -- Returning true means the engine should invoke the callback.
             return ctx and ctx.faction
                 and type(ctx.faction) == "function"
                 and (function()
@@ -3416,19 +3418,31 @@ function ensure_spectator_listener(panel)
     end
     local ok = wingman_listeners.register(
         "wingman_ai_spectator_buttons", "ComponentLClickUp",
+        -- Condition: only fire for the spectator panel's two buttons.
+        -- Returns true so the engine invokes the (empty) callback.
         function(ctx)
             if not ctx then return false end
             if type(ctx.string) ~= "function" then return false end
             local ok_s, sid = pcall(ctx.string, ctx)
             if not ok_s or type(sid) ~= "string" then return false end
+            return sid == SPECTATOR_FOLLOW_BUTTON
+                or sid == SPECTATOR_CLOSE_BUTTON
+        end,
+        -- Callback: do the actual work (button click handling). The
+        -- work is in here, NOT in the condition, so the engine's
+        -- pcall of the callback is what runs the handler. (Putting
+        -- the work in the condition slot would execute the side
+        -- effects every time the engine checks the condition, and
+        -- pcall(false) for the callback would error.)
+        function(ctx)
+            if type(ctx.string) ~= "function" then return end
+            local ok_s, sid = pcall(ctx.string, ctx)
+            if not ok_s or type(sid) ~= "string" then return end
             if sid == SPECTATOR_FOLLOW_BUTTON then
                 if on_follow_next_army then pcall(on_follow_next_army, ctx) end
-                return true
             elseif sid == SPECTATOR_CLOSE_BUTTON then
                 if on_close_spectator then pcall(on_close_spectator, ctx) end
-                return true
             end
-            return false
         end,
         false -- not persistent
     )

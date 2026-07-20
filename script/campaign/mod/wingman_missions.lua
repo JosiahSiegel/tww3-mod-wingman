@@ -614,36 +614,45 @@ function wingman_missions.on_mission_failed(context)
     on_mission_fail(context)
 end
 
---[[ Listener registration helper. Idempotent. ]]
+--[[ Listener registration helper. Idempotent.
+
+Routes through wingman_listeners.register so the central registry
+sees these listeners — otherwise the `wingman_listeners.unregister_all`
+path and the diagnostic surface (count, is_registered) would miss
+the mission listeners.
+]]
 function wingman_missions.register_listeners()
-    if type(core) ~= "table" or type(core.add_listener) ~= "function" then
+    if listeners_registered then
+        debug("register_listeners: already registered; skipping")
+        return true
+    end
+
+    if not core or type(core.add_listener) ~= "function" then
         warn("register_listeners: core.add_listener unavailable")
         return false
     end
 
-    pcall(core.add_listener, core,
-        "wingman_missions_success",
-        "MissionSucceeded",
-        true,
+    local ok_success = wingman_listeners.register(
+        "wingman_missions_success", "MissionSucceeded", true,
         function(context) wingman_missions.on_mission_succeeded(context) end,
         false)
 
-    pcall(core.add_listener, core,
-        "wingman_missions_failure",
-        "MissionFailed",
-        true,
+    local ok_failure = wingman_listeners.register(
+        "wingman_missions_failure", "MissionFailed", true,
         function(context) wingman_missions.on_mission_failed(context) end,
         false)
 
-    return true
+    -- Treat either as enough to mark "registered"; the central
+    -- registry will track both. If the engine rejected both, the
+    -- guard above would have returned false before this point.
+    listeners_registered = ok_success == true or ok_failure == true
+    return listeners_registered
 end
 
 --[[ Mirror of register_listeners for shutdown/save-reload. ]]
 function wingman_missions.unregister_listeners()
-    if type(core) ~= "table" or type(core.remove_listener) ~= "function" then
-        return false
-    end
-    pcall(core.remove_listener, core, "wingman_missions_success")
-    pcall(core.remove_listener, core, "wingman_missions_failure")
+    wingman_listeners.unregister("wingman_missions_success")
+    wingman_listeners.unregister("wingman_missions_failure")
+    listeners_registered = false
     return true
 end
