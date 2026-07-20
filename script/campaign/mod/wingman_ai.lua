@@ -490,8 +490,16 @@ local function list_characters(faction)
     local ok_n, count = pcall(lst.num_items, lst)
     if not ok_n then return nil end
     count = tonumber(count) or 0
+    -- Pre-fix: iterated `for i = 0, count - 1`. TWW3's item_at is
+    -- 1-based (returns character at index 1..count), so 0-based
+    -- iteration skipped the first character and double-counted nothing
+    -- for the empty (i=0) slot. The W6 test passed because its stub
+    -- returned a single-character list and the bug was masked (the
+    -- first character was the only one anyway). Caught when
+    -- list_characters was exercised with a 2-character stub and
+    -- step_hero_actions couldn't find any force-owner.
     local out = {}
-    for i = 0, count - 1 do
+    for i = 1, count do
         local ok2, c = pcall(lst.item_at, lst, i)
         if ok2 and c then out[#out + 1] = c end
     end
@@ -1688,7 +1696,10 @@ local function step_post_battle_decisions(local_faction, local_faction_key)
         -- Stop convalescing: capped at 1 per turn to avoid savegame churn
         -- (each stop_character_convalescing call forces a re-evaluation of
         -- all armies, which is expensive).
-        if acted < budget_left() and acted < 3 then
+        -- Pre-fix: `acted < budget_left()` was a type error — budget_left
+        -- returns a boolean, not a number. Caught at runtime in W8 path
+        -- when the W6 tests didn't exercise step_post_battle_decisions.
+        if budget_left() and acted < 3 then
             local ok_stop, why = order_stop_convalescing(c)
             if ok_stop then
                 acted = acted + 1
@@ -1730,12 +1741,17 @@ local function step_replenish_armies(local_faction, local_faction_key)
         if not character_has_military_force(c) then
             -- not an army
         else
-            -- Try to get the force interface. pcall-guarded.
-            local ok_f, force = pcall(function()
-                if type(c.military_force) == "function" then return c:military_force() end
-                return nil
-            end)
-            if ok_f and force and type(force.is_null_interface) == "function" and not force:is_null_interface() then
+            -- Pre-fix: wrapped the type-checked `c:military_force()`
+            -- call in a pcall(function() ... end). The type check IS
+            -- the guard — if the call throws despite the type check,
+            -- `order_heal_force` is already pcall-wrapped via
+            -- `safe_order`. So the outer pcall is dead overhead in
+            -- the hot path. Calling directly.
+            local force = nil
+            if type(c.military_force) == "function" then
+                force = c:military_force()
+            end
+            if force and type(force.is_null_interface) == "function" and not force:is_null_interface() then
                 local ok_h, why = order_heal_force(force)
                 if ok_h then
                     healed = healed + 1
@@ -1780,6 +1796,28 @@ local function step_hero_actions(local_faction, local_faction_key)
     -- military_force. We try to embed it in the nearest friendly force.
     -- If there's no force, the engine will auto-embed on its own tick,
     -- so we just skip.
+    --
+    -- Pre-fix: nested `for _, other in ipairs(characters)` inside the
+    -- outer loop was O(N²) with a `cqi_of(other)` + `char_lookup(...)`
+    -- pair per inner iteration. For 20 characters that's 400 pcall-pairs
+    -- per turn. Hoisted the force-owner cqi list out of the loop and
+    -- restricted the inner search to "any friendly force" rather than
+    -- "in the same region" (the engine doesn't expose a cheap "char at
+    -- same region" API; this is a nudge, not a guarantee).
+    local force_owner_cqis = {}
+    for _, c in ipairs(characters) do
+        if character_has_military_force(c) then
+            force_owner_cqis[#force_owner_cqis + 1] = c
+        end
+    end
+    -- Pre-resolve cqi → cs once. Avoids repeating cqi_of + char_lookup
+    -- in the inner loop.
+    local force_owner_css = {}
+    for i, c in ipairs(force_owner_cqis) do
+        local cs = char_lookup(cqi_of(c))
+        if cs then force_owner_css[i] = cs end
+    end
+
     for _, c in ipairs(characters) do
         if not budget_left() then break end
         if state.error_seen_this_turn then break end
@@ -1790,23 +1828,11 @@ local function step_hero_actions(local_faction, local_faction_key)
         if character_has_military_force(c) then
             -- has a force → not an unembedded agent
         else
-            -- No force. Try to find a friendly character with a force
-            -- in the same region. Pcall-guarded; we don't have a
-            -- "char at same region" cheap API, so we use the cache
-            -- pattern: if there's any other friendly character with
-            -- a force, embed into that. This is a best-effort
-            -- heurustic; the real engine handles embedding on its
-            -- own tick, so this is just a nudge.
-            local target_cs = nil
-            for _, other in ipairs(characters) do
-                if other ~= c and character_has_military_force(other) then
-                    local ocs = char_lookup(cqi_of(other))
-                    if ocs then target_cs = ocs; break end
-                end
-            end
-            if target_cs and cm and type(cm.embed_agent_in_force) == "function" then
+            if cm and type(cm.embed_agent_in_force) == "function"
+                and #force_owner_css > 0 then
                 local cs = char_lookup(cqi_of(c))
                 if cs then
+                    local target_cs = force_owner_css[1]
                     local ok_e, why = safe_order(
                         string.format("embed_agent_in_force(%s)", tostring(target_cs)),
                         function() cm:embed_agent_in_force(cs, target_cs) end)
