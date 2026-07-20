@@ -265,6 +265,18 @@ function wingman.unregister_listeners()
     if wingman_safety and type(wingman_safety.unregister_listeners) == "function" then
         pcall(wingman_safety.unregister_listeners)
     end
+    if wingman_battle and type(wingman_battle.unregister_listeners) == "function" then
+        pcall(wingman_battle.unregister_listeners)
+    end
+    if wingman_ai and type(wingman_ai.unregister_listeners) == "function" then
+        pcall(wingman_ai.unregister_listeners)
+    end
+    if wingman_campaign and type(wingman_campaign.unregister_listeners) == "function" then
+        pcall(wingman_campaign.unregister_listeners)
+    end
+    if wingman_missions and type(wingman_missions.unregister_listeners) == "function" then
+        pcall(wingman_missions.unregister_listeners)
+    end
 
     registered_listeners = {}
     listeners_lock = false
