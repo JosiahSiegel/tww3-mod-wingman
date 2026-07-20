@@ -1311,6 +1311,23 @@ local function step_discover_and_recruit(local_faction, local_faction_key)
                 else
                     local ok_items, items = pcall(mf.recruitment_items, mf)
                     if ok_items and type(items) == "table" and #items > 0 then
+                        -- Pick the first available unit, gate on can_recruit_unit.
+                        -- NOTE: `items` is engine-returned userdata that USUALLY
+                        -- behaves like a sequence, but `#items` is only O(1) for
+                        -- contiguous sequences. If the engine ever returns a
+                        -- table with a nil gap (e.g. { [1]=a, [3]=b }), `#items`
+                        -- stops at the gap and ipairs will not see index 3. We
+                        -- try the engine's num_items()/item_at(i) if present;
+                        -- fall back to a manual length counter.
+                        local count
+                        if type(items.num_items) == "function" and type(items.item_at) == "function" then
+                            local ok_ni, ni = pcall(items.num_items, items)
+                            count = ok_ni and tonumber(ni) or 0
+                        else
+                            count = 0
+                            for _, _ in ipairs(items) do count = count + 1 end
+                        end
+                        if count > 0 then
                         -- Pick the first available unit, gate on can_recruit_unit
                         for _, uk in ipairs(items) do
                             if type(uk) ~= "string" or uk == "" then
@@ -1332,6 +1349,7 @@ local function step_discover_and_recruit(local_faction, local_faction_key)
                                     end
                                 end
                             end
+                        end  -- close `if count > 0 then`
                         end
                     end
                 end
