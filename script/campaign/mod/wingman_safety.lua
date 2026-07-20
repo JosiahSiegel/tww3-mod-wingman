@@ -79,9 +79,14 @@ function wingman_safety.mp_guard(caller_label)
             return false
         end
         if not ok then
-            warn(string.format("mp_guard: cm:is_multiplayer threw for %s: %s",
+            -- Engine threw. Pre-fix code returned false here, which
+            -- blocked the AI on any transient cm:is_multiplayer
+            -- error. We now treat a throw the same as "cm missing":
+            -- warn, then assume single-player. Refusing to run on
+            -- a transient engine error is over-conservative and
+            -- would stall the campaign on a single bad patch load.
+            warn(string.format("mp_guard: cm:is_multiplayer threw for %s: %s; assuming single-player",
                 tostring(caller_label or "?"), tostring(is_mp)))
-            return false
         end
     end
     -- If cm is missing entirely, treat as not-MP but warn loudly — the engine
@@ -129,22 +134,37 @@ end
 -- Modal / popup helpers
 -- ---------------------------------------------------------------------------
 
+-- Block a panel if the panel key equals one of these tokens, or starts
+-- with "<kw>_" (e.g. "diplomacy_panel" matches "diplomacy"). The pre-fix
+-- code did a plain substring search, which produced false positives:
+--   "warehouse_full_alert"   -> matched "war"
+--   "achievement_award"      -> matched "war"
+--   "warning_toast"          -> matched "war"
+--   "skill_tree_panel"       -> matched "skill"
+--   "treasury_overview"      -> matched "trade"
+-- Anchored match prevents these. Note: "warning" / "alert" / "skill"
+-- are removed from the list entirely — they're too common as substrings
+-- in TWW3's UI naming. If a real panel needs pausing, the canonical
+-- TWW3 panel key is e.g. "diplomacy", "war_declaration", "dilemma_*".
 local PANEL_KEYWORDS = {
-    diplomacy = "diplomacy",
-    war       = "war",
-    dilemma   = "dilemma",
-    trade     = "trade",
-    warning   = "warning",
-    alert     = "alert",
-    event     = "event_message",
-    skill     = "skill",
+    "diplomacy",
+    "war",
+    "dilemma",
+    "trade",
+    "event_message",
 }
 
---- Inspect a panel key string for known blocking patterns.
+--- True if `panel_key` matches one of the blocking keywords anchored
+-- at the start of the token (or is the token exactly).
 local function panel_key_blocks(panel_key)
     if type(panel_key) ~= "string" or panel_key == "" then return false end
-    for _, kw in pairs(PANEL_KEYWORDS) do
-        if panel_key:lower():find(kw, 1, true) then
+    local lower = panel_key:lower()
+    for _, kw in ipairs(PANEL_KEYWORDS) do
+        if lower == kw then return true end
+        -- Match if panel_key starts with "<kw>_". The trailing
+        -- underscore distinguishes "diplomacy_panel" (block) from
+        -- "diplomatic_immunity_ritual" (don't block).
+        if #lower > #kw + 1 and lower:sub(1, #kw + 1) == kw .. "_" then
             return true
         end
     end
@@ -177,14 +197,22 @@ function wingman_safety.on_panel_opened(context)
     settings = settings or {}
 
     -- Default conservatively: pause on any known modal. Settings narrow this.
-    if panel_key:lower():find("diplomacy", 1, true) then
+    -- Use anchored matching (same as panel_key_blocks) so a panel named
+    -- "warehouse" or "warning" does not falsely match "war".
+    local lower = panel_key:lower()
+    local function starts_with(prefix)
+        return #lower >= #prefix
+            and lower:sub(1, #prefix) == prefix
+    end
+
+    if starts_with("diplomacy") then
         if settings.wingman_break_on_diplomacy_panel ~= false then
             wingman_safety.pause_for_popup(panel_key, context)
         end
         return
     end
 
-    if panel_key:lower():find("war", 1, true) then
+    if starts_with("war") then
         -- War declaration handling also runs in on_faction_joins_war, but
         -- the panel itself can appear without that event in some patches.
         if settings.wingman_break_on_war_declaration ~= false then
