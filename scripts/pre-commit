@@ -47,5 +47,16 @@ if ! "$PY" tests/manual/test_mct_integration.py; then
     exit 1
 fi
 
+# Lua 5.1 source-level compat: catches goto, ::label::, bit32, //, etc.
+# TWW3 runs Lua 5.1; Lupa 2.8 runs 5.5 and masks the difference.
+# This is the only place we can catch a 5.1-incompat without a real
+# 5.1 interpreter installed. Cheap (< 100ms) so we run it always.
+echo "[pre-commit] Running Lua 5.1 source-level compat scan ..."
+if ! "$PY" scripts/runtime_compat.py; then
+    echo "FAIL: scripts/runtime_compat.py -- Lua 5.2+ feature detected." >&2
+    echo "      TWW3 is Lua 5.1; rewrite to be 5.1-compatible." >&2
+    exit 1
+fi
+
 echo "[pre-commit] OK -- Lua tests pass; commit allowed."
 exit 0

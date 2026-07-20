@@ -111,6 +111,13 @@ jobs:
       - name: MCT integration test (Lua parse + register gate)
         run: python tests/manual/test_mct_integration.py
 
+      # Lua 5.1 source-level compat: TWW3 is Lua 5.1, Lupa 2.8 is
+      # 5.5. Catches goto, ::label::, bit32, //, loadstring,
+      # string.pack, string.unpack, table.unpack without the
+      # `or unpack` fallback. Cheap (< 100ms) so it runs every PR.
+      - name: Lua 5.1 source-level compat scan
+        run: python scripts/runtime_compat.py
+
       # Build the pack with a pure-Python PFH5 writer. Zero external deps,
       # no apt installs, no 122 MB RPFM download. The format is documented at
       # https://github.com/TotalWar-Modding/docs/blob/master/pack%20file%20format.md
