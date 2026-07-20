@@ -511,46 +511,16 @@ function wingman_battle.register_listeners()
         debug("register_listeners: already registered; skipping")
         return true
     end
-    if not core or type(core.add_listener) ~= "function" then
-        warn("register_listeners: core.add_listener unavailable; skipping")
-        return false
-    end
 
-    local ok_pending, err_pending = pcall(core.add_listener,
-        core,
-        LISTENER_NAMES.pending,
-        "PendingBattle",
-        true,
-        function(context) wingman_battle.on_pending_battle(context) end,
-        false)
-
-    if not ok_pending then
-        warn("register_listeners: PendingBattle failed: " .. tostring(err_pending))
-    end
-
-    local ok_start, err_start = pcall(core.add_listener,
-        core,
-        LISTENER_NAMES.battle_start,
-        "BattleBeingFought",
-        true,
-        function(context) wingman_battle.on_battle_being_fought(context) end,
-        false)
-
-    if not ok_start then
-        warn("register_listeners: BattleBeingFought failed: " .. tostring(err_start))
-    end
-
-    local ok_done, err_done = pcall(core.add_listener,
-        core,
-        LISTENER_NAMES.battle_done,
-        "BattleCompleted",
-        true,
-        function(context) wingman_battle.on_battle_completed(context) end,
-        false)
-
-    if not ok_done then
-        warn("register_listeners: BattleCompleted failed: " .. tostring(err_done))
-    end
+    local ok_pending = wingman_listeners.register(
+        LISTENER_NAMES.pending, "PendingBattle", true,
+        function(context) wingman_battle.on_pending_battle(context) end, false)
+    local ok_start = wingman_listeners.register(
+        LISTENER_NAMES.battle_start, "BattleBeingFought", true,
+        function(context) wingman_battle.on_battle_being_fought(context) end, false)
+    local ok_done = wingman_listeners.register(
+        LISTENER_NAMES.battle_done, "BattleCompleted", true,
+        function(context) wingman_battle.on_battle_completed(context) end, false)
 
     listeners_registered = ok_pending or ok_start or ok_done
     log(string.format("register_listeners: pending=%s start=%s done=%s",
@@ -559,12 +529,8 @@ function wingman_battle.register_listeners()
 end
 
 function wingman_battle.unregister_listeners()
-    if not core or type(core.remove_listener) ~= "function" then
-        listeners_registered = false
-        return false
-    end
     for _, name in pairs(LISTENER_NAMES) do
-        pcall(core.remove_listener, core, name)
+        wingman_listeners.unregister(name)
     end
     listeners_registered = false
     debug("unregister_listeners: cleared")

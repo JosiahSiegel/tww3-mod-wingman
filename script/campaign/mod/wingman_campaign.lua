@@ -238,52 +238,24 @@ function wingman_campaign.register_listeners()
         debug("register_listeners: already registered; skipping")
         return true
     end
-    if not core or type(core.add_listener) ~= "function" then
-        warn("register_listeners: core.add_listener unavailable; skipping")
-        return false
-    end
 
     -- Listener 1: FactionTurnStart — main entry, gated on player + mode + setting.
-    local ok_ts, err_ts = pcall(core.add_listener,
-        core,
-        wingman_campaign.LISTENER_NAMES[1],
-        "FactionTurnStart",
-        true,
-        function(context) wingman_campaign.on_faction_turn_start(context) end,
-        false)
-    if not ok_ts then
-        warn("register_listeners: FactionTurnStart failed: " .. tostring(err_ts))
-    end
+    local ok_ts = wingman_listeners.register(
+        wingman_campaign.LISTENER_NAMES[1], "FactionTurnStart", true,
+        function(context) wingman_campaign.on_faction_turn_start(context) end, false)
     listeners_registration_ok.turn_start = ok_ts
 
     -- Listener 2: FactionTurnEnd — player cleanup.
-    local ok_te, err_te = pcall(core.add_listener,
-        core,
-        wingman_campaign.LISTENER_NAMES[2],
-        "FactionTurnEnd",
-        true,
-        function(context) wingman_campaign.on_faction_turn_end(context) end,
-        false)
-    if not ok_te then
-        warn("register_listeners: FactionTurnEnd failed: " .. tostring(err_te))
-    end
+    local ok_te = wingman_listeners.register(
+        wingman_campaign.LISTENER_NAMES[2], "FactionTurnEnd", true,
+        function(context) wingman_campaign.on_faction_turn_end(context) end, false)
     listeners_registration_ok.turn_end = ok_te
 
     -- Listener 3: Round-start — refresh MCT settings + rules. WorldStartRound
     -- is the canonical "new turn-cycle" event in WH3 episodic scripting.
-    local ok_rs, err_rs
-    if type(core.add_listener) == "function" then
-        ok_rs, err_rs = pcall(core.add_listener,
-            core,
-            wingman_campaign.LISTENER_NAMES[3],
-            "WorldStartRound",
-            true,
-            function(context) wingman_campaign.on_round_start(context) end,
-            false)
-        if not ok_rs then
-            warn("register_listeners: WorldStartRound failed: " .. tostring(err_rs))
-        end
-    end
+    local ok_rs = wingman_listeners.register(
+        wingman_campaign.LISTENER_NAMES[3], "WorldStartRound", true,
+        function(context) wingman_campaign.on_round_start(context) end, false)
     listeners_registration_ok.round_start = ok_rs == true
 
     listeners_registered = listeners_registration_ok.turn_start
@@ -309,10 +281,7 @@ function wingman_campaign.unregister_listeners()
     end
 
     for i, name in ipairs(wingman_campaign.LISTENER_NAMES) do
-        local ok, err = pcall(core.remove_listener, core, name)
-        if not ok then
-            warn("unregister_listeners: failed to remove " .. tostring(name) .. ": " .. tostring(err))
-        end
+        wingman_listeners.unregister(name)
     end
 
     listeners_registered = false

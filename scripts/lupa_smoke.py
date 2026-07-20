@@ -56,6 +56,7 @@ else:
 # this to SOURCE_FILES so any future syntax error fails lupa_smoke in
 # ~1 second instead of shipping.)
 SOURCE_FILES = (
+    "script/campaign/mod/wingman_listeners.lua",
     "script/campaign/mod/wingman_state.lua",
     "script/campaign/mod/wingman_safety.lua",
     "script/campaign/mod/wingman_missions.lua",
