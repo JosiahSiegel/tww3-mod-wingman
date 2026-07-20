@@ -110,9 +110,9 @@ wingman_ai.MODULE_NAME = "wingman_ai"
 -- FactionTurnStart listener name. Keep unique across the mod.
 local LISTENER_NAME = "wingman_ai_turn_start"
 
-local AGGRESSION_DEFENSIVE  = "defensive"
-local AGGRESSION_BALANCED   = "balanced"
-local AGGRESSION_AGGRESSIVE = "aggressive"
+local AGGRESSION_DEFENSIVE  = wingman_constants.AGGRESSION_DEFENSIVE
+local AGGRESSION_BALANCED   = wingman_constants.AGGRESSION_BALANCED
+local AGGRESSION_AGGRESSIVE = wingman_constants.AGGRESSION_AGGRESSIVE
 
 local DEFAULT_ORDERS_PER_TURN = 8
 local MIN_ORDERS_PER_TURN = 1

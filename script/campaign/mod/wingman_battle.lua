@@ -20,10 +20,10 @@ wingman_battle = {}
 -- Constants — keep in sync with wingman_state DEFAULTS / schema-of-record.
 -- ---------------------------------------------------------------------------
 
-wingman_battle.MODE_SCRIPTED_AI             = "scripted_ai"
-wingman_battle.MODE_AUTORESOLVE_IF_FAVORABLE = "autoresolve_if_favorable"
-wingman_battle.MODE_PAUSE_TO_CHOOSE         = "pause_to_choose"
-wingman_battle.MODE_MANUAL_OBSERVE          = "manual_observe"
+wingman_battle.MODE_SCRIPTED_AI             = wingman_constants.MODE_SCRIPTED_AI
+wingman_battle.MODE_AUTORESOLVE_IF_FAVORABLE = wingman_constants.MODE_AUTORESOLVE_IF_FAVORABLE
+wingman_battle.MODE_PAUSE_TO_CHOOSE         = wingman_constants.MODE_PAUSE_TO_CHOOSE
+wingman_battle.MODE_MANUAL_OBSERVE          = wingman_constants.MODE_MANUAL_OBSERVE
 
 wingman_battle.BIAS_AUTO   = "auto"
 wingman_battle.BIAS_ATTACK = "attack"
