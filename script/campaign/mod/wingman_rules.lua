@@ -158,41 +158,54 @@ local function query_model()
     return qm
 end
 
---[[ Iterate region_list safely. Returns iterator closure or nil. ]]
+--[[ Iterate region_list safely. Returns iterator closure or nil.
+    Pre-fix: the closure called `pcall(regions.num_items, regions)` on
+    EVERY iteration. `num_items` is constant for the lifetime of the
+    list object — caching it once when the closure is created turns
+    O(N) pcalls into O(1). For a campaign with 100+ regions this is
+    ~200 fewer pcalls per turn-end evaluator pass. ]]
 local function iter_regions()
     local qm = query_model()
     if not qm or type(qm.region_list) ~= "function" then return nil end
     local ok, regions = pcall(qm.region_list, qm)
     if not ok or not regions then return nil end
+    -- Hoist the count out of the closure.
+    local count = 0
+    if type(regions.num_items) == "function" then
+        local ok_c, c = pcall(regions.num_items, regions)
+        if ok_c and type(c) == "number" then count = c end
+    end
+    local item_at = regions.item_at
+    if type(item_at) ~= "function" then return nil end
     local i = 0
     return function()
         i = i + 1
-        if type(regions.num_items) == "function" then
-            local ok2, count = pcall(regions.num_items, regions)
-            if not ok2 or i > (tonumber(count) or 0) then return nil end
-        end
-        if type(regions.item_at) ~= "function" then return nil end
-        local ok3, r = pcall(regions.item_at, regions, i)
+        if i > count then return nil end
+        local ok3, r = pcall(item_at, regions, i)
         if not ok3 or not r then return nil end
         return r
     end
 end
 
---[[ Iterate faction_list safely. Returns iterator closure or nil. ]]
+--[[ Iterate faction_list safely. Returns iterator closure or nil.
+    Same hoisting pattern as iter_regions — see comment above. ]]
 local function iter_factions()
     local qm = query_model()
     if not qm or type(qm.faction_list) ~= "function" then return nil end
     local ok, factions = pcall(qm.faction_list, qm)
     if not ok or not factions then return nil end
+    local count = 0
+    if type(factions.num_items) == "function" then
+        local ok_c, c = pcall(factions.num_items, factions)
+        if ok_c and type(c) == "number" then count = c end
+    end
+    local item_at = factions.item_at
+    if type(item_at) ~= "function" then return nil end
     local i = 0
     return function()
         i = i + 1
-        if type(factions.num_items) == "function" then
-            local ok2, count = pcall(factions.num_items, factions)
-            if not ok2 or i > (tonumber(count) or 0) then return nil end
-        end
-        if type(factions.item_at) ~= "function" then return nil end
-        local ok3, f = pcall(factions.item_at, factions, i)
+        if i > count then return nil end
+        local ok3, f = pcall(item_at, factions, i)
         if not ok3 or not f then return nil end
         return f
     end

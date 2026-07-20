@@ -152,9 +152,15 @@ local function mm_method(mm, method, ...)
 end
 
 local function global_mm_method(method, ...)
-    if type(mission_manager) ~= "function" or type(mission_manager[method]) ~= "function" then
-        return nil
-    end
+    -- Pre-fix: checked `type(mission_manager) ~= "function"`. That's
+    -- always true (mission_manager is a table, never a function), so
+    -- the OR short-circuited to TRUE and we returned nil regardless
+    -- of whether the method existed. Every call from `cancel_or_refresh`
+    -- and `complete_victory` silently did nothing. The check should
+    -- verify mission_manager is a TABLE and the requested method
+    -- exists.
+    if type(mission_manager) ~= "table" then return nil end
+    if type(mission_manager[method]) ~= "function" then return nil end
     local ok, val = pcall(mission_manager[method], mission_manager, ...)
     if not ok then
         warn(string.format("mission_manager:%s threw: %s", tostring(method), tostring(val)))
@@ -476,7 +482,12 @@ function wingman_missions.cancel_or_refresh()
 
     local cancelled = 0
     if keys.turn_cap and keys.turn_cap ~= "" then
-        if global_mm_method("fail_custom_mission", keys.turn_cap) ~= nil then
+        -- Pre-fix: counted any non-nil return, including `false` from
+        -- the engine. A `false` return means "could not cancel" (e.g.,
+        -- mission already completed or never started). Counting those
+        -- as cancellations broke the log accuracy and made the counter
+        -- a misleading diagnostic. Truthy check is the correct intent.
+        if global_mm_method("fail_custom_mission", keys.turn_cap) then
             cancelled = cancelled + 1
         end
     end
@@ -486,7 +497,7 @@ function wingman_missions.cancel_or_refresh()
         local n = 0
         for _, k in ipairs(list) do
             if k and k ~= "" then
-                if global_mm_method("fail_custom_mission", k) ~= nil then
+                if global_mm_method("fail_custom_mission", k) then
                     n = n + 1
                 end
             end
