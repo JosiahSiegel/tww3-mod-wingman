@@ -544,6 +544,63 @@ local function read_settings_from_mct()
     return nil
 end
 
+-- ---------------------------------------------------------------------------
+-- Schema migrations
+--
+-- Add a new entry when SCHEMA_VERSION bumps. Each migration takes the
+-- settings table from the previous version and returns the (possibly
+-- reshaped) settings table for the new version. Migrations are applied
+-- in order from saved_version+1 → current_version, so each function
+-- only has to know about the immediately preceding version.
+--
+-- Example for a future v2 that renames a key:
+--   wingman_state.MIGRATIONS[2] = function(s)
+--       if s.wingman_ai_orders_per_turn ~= nil then
+--           s.wingman_ai_max_orders_per_turn = s.wingman_ai_orders_per_turn
+--           s.wingman_ai_orders_per_turn = nil
+--       end
+--       return s
+--   end
+--
+-- v1 is the current schema; no migration needed yet. The empty table
+-- entry makes the loop a no-op.
+-- ---------------------------------------------------------------------------
+
+wingman_state.MIGRATIONS = {
+    -- [2] = function(s) ... end,  -- future v2 migration
+}
+
+local function apply_migrations(settings, from_version, to_version)
+    if type(settings) ~= "table" then return settings end
+    if from_version == to_version then return settings end
+    for v = from_version + 1, to_version do
+        local migrate = wingman_state.MIGRATIONS[v]
+        if type(migrate) == "function" then
+            local ok, result = pcall(migrate, settings)
+            if ok and type(result) == "table" then
+                settings = result
+            else
+                warn(string.format("migration v%d -> v%d failed: %s; keeping pre-migration settings",
+                    v - 1, v, tostring(result)))
+            end
+        else
+            -- No migration registered for this version bump. Add one to
+            -- wingman_state.MIGRATIONS[N] before bumping SCHEMA_VERSION.
+            warn(string.format("no migration registered for v%d -> v%d; keeping pre-migration settings",
+                v - 1, v))
+        end
+    end
+    return settings
+end
+
+--- Public: run the migration chain on a settings table.
+-- Useful for tests and for one-off migration runs during campaign load.
+function wingman_state.migrate_settings(settings, from_version, to_version)
+    from_version = tonumber(from_version) or 1
+    to_version = tonumber(to_version) or wingman_state.SCHEMA_VERSION
+    return apply_migrations(settings, from_version, to_version)
+end
+
 local function load_global_settings()
     local persisted_raw = safe_load_registry(KEY_GLOBAL_SETTINGS)
     local persisted = json_decode(persisted_raw)
@@ -553,6 +610,14 @@ local function load_global_settings()
     for k, v in pairs(DEFAULTS) do merged[k] = v end
 
     if type(persisted) == "table" then
+        -- Apply schema migrations before layering. The global settings
+        -- schema is the same as the in-save schema — a single bump
+        -- applies to both blobs. (If we ever need to bump them
+        -- independently, switch to per-blob schema keys.)
+        local saved_schema = tonumber(safe_load_named(KEY_SCHEMA_VERSION)) or 1
+        if saved_schema < wingman_state.SCHEMA_VERSION then
+            persisted = apply_migrations(persisted, saved_schema, wingman_state.SCHEMA_VERSION)
+        end
         for k, v in pairs(persisted) do merged[k] = v end
     end
 
@@ -609,6 +674,8 @@ function wingman_state.init()
             .. " current=" .. tostring(wingman_state.SCHEMA_VERSION)
             .. "; resetting transient in-save state")
         -- Reset transient in-save keys; keep settings and mode.
+        -- (Per-version migrations for the settings blob itself run
+        -- inside load_global_settings() via the MIGRATIONS table.)
         safe_save_named(KEY_LAST_TURN, 0)
         safe_save_named(KEY_BREAK_REASON, "")
         safe_save_named(KEY_RULE_PROGRESS, "")
