@@ -2095,11 +2095,8 @@ function wingman_ai.register_listeners()
         return false
     end
 
-    local ok, err = pcall(core.add_listener,
-        core,
-        LISTENER_NAME,
-        "FactionTurnStart",
-        true,  -- conditional
+    local ok = wingman_listeners.register(
+        LISTENER_NAME, "FactionTurnStart", true,
         function(ctx)
             return ctx and ctx.faction
                 and type(ctx.faction) == "function"
@@ -2121,7 +2118,7 @@ function wingman_ai.register_listeners()
         false -- not persistent: re-registered on save/load by wingman.init
     )
     if not ok then
-        warn("register_listeners: FactionTurnStart failed: " .. tostring(err))
+        warn("register_listeners: FactionTurnStart failed (see wingman_listeners warning)")
         return false
     end
 
@@ -2132,11 +2129,7 @@ end
 
 --- Remove the AI listener so save/load can re-register it cleanly.
 function wingman_ai.unregister_listeners()
-    if not core or type(core.remove_listener) ~= "function" then
-        listeners_registered = false
-        return false
-    end
-    pcall(core.remove_listener, core, LISTENER_NAME)
+    wingman_listeners.unregister(LISTENER_NAME)
     listeners_registered = false
     debug("unregister_listeners: cleared")
     return true
@@ -2725,16 +2718,13 @@ local advisory_listener_registered = false
 local function ensure_advisory_listener()
     if advisory_listener_registered then return end
     if not core or type(core.add_listener) ~= "function" then return end
-    local ok, err = pcall(core.add_listener,
-        core,
-        "wingman_ai_advisory_dilemma_choice",
-        "DilemmaChoiceMadeEvent",
-        true,  -- condition; we filter inside on_dilemma_choice_made
+    local ok = wingman_listeners.register(
+        "wingman_ai_advisory_dilemma_choice", "DilemmaChoiceMadeEvent", true,
         function(ctx) on_dilemma_choice_made(ctx) end,
         false -- not persistent: re-registered on save/load by wingman.init
     )
     if not ok then
-        warn("advisory: add_listener failed: " .. tostring(err))
+        warn("advisory: add_listener failed (see wingman_listeners warning)")
         return
     end
     advisory_listener_registered = true
@@ -2885,16 +2875,13 @@ local strategic_pause_listener_registered = false
 local function ensure_strategic_pause_listener()
     if strategic_pause_listener_registered then return end
     if not core or type(core.add_listener) ~= "function" then return end
-    local ok, err = pcall(core.add_listener,
-        core,
-        "wingman_ai_strategic_pause_dilemma_choice",
-        "DilemmaChoiceMadeEvent",
-        true,
+    local ok = wingman_listeners.register(
+        "wingman_ai_strategic_pause_dilemma_choice", "DilemmaChoiceMadeEvent", true,
         function(ctx) on_strategic_pause_choice_made(ctx) end,
         false
     )
     if not ok then
-        warn("strategic_pause: add_listener failed: " .. tostring(err))
+        warn("strategic_pause: add_listener failed (see wingman_listeners warning)")
         return
     end
     strategic_pause_listener_registered = true
@@ -3015,10 +3002,8 @@ function ensure_take_back_listener(banner)
         -- Still re-bind so a fresh banner (after save/load) is wired.
         take_back_listener_registered = false
     end
-    local ok, err = pcall(core.add_listener,
-        core,
-        "wingman_ai_take_back_button",
-        "ComponentLClickUp",
+    local ok = wingman_listeners.register(
+        "wingman_ai_take_back_button", "ComponentLClickUp",
         function(ctx)
             if not ctx then return false end
             local ok_s, s = pcall(function()
@@ -3032,7 +3017,7 @@ function ensure_take_back_listener(banner)
         false -- not persistent; re-registered on save/load by wingman.init
     )
     if not ok then
-        warn("take_back listener: add_listener failed: " .. tostring(err))
+        warn("take_back listener: add_listener failed (see wingman_listeners warning)")
         return
     end
     take_back_listener_registered = true
@@ -3281,10 +3266,8 @@ function ensure_spectator_listener(panel)
         -- Re-bind so a fresh panel (after save/load) is wired.
         spectator_listener_registered = false
     end
-    local ok, err = pcall(core.add_listener,
-        core,
-        "wingman_ai_spectator_buttons",
-        "ComponentLClickUp",
+    local ok = wingman_listeners.register(
+        "wingman_ai_spectator_buttons", "ComponentLClickUp",
         function(ctx)
             if not ctx then return false end
             if type(ctx.string) ~= "function" then return false end
@@ -3302,7 +3285,7 @@ function ensure_spectator_listener(panel)
         false -- not persistent
     )
     if not ok then
-        warn("ensure_spectator_listener: " .. tostring(err))
+        warn("ensure_spectator_listener: see wingman_listeners warning")
         return
     end
     spectator_listener_registered = true

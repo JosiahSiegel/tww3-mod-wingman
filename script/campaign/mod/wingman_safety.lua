@@ -451,46 +451,18 @@ function wingman_safety.register_listeners()
         debug("register_listeners: already registered; skipping")
         return true
     end
-    if not core or type(core.add_listener) ~= "function" then
-        warn("register_listeners: core.add_listener unavailable; skipping")
-        return false
-    end
 
-    local ok_panel, err_panel = pcall(core.add_listener,
-        core,
-        LISTENER_NAMES.panel,
-        "PanelOpenedCampaign",
-        true,
-        function(context) wingman_safety.on_panel_opened(context) end,
-        false)
+    local ok_panel = wingman_listeners.register(
+        LISTENER_NAMES.panel, "PanelOpenedCampaign", true,
+        function(context) wingman_safety.on_panel_opened(context) end, false)
 
-    if not ok_panel then
-        warn("register_listeners: PanelOpenedCampaign failed: " .. tostring(err_panel))
-    end
+    local ok_battle = wingman_listeners.register(
+        LISTENER_NAMES.battle_done, "BattleCompleted", true,
+        function(context) wingman_safety.on_battle_completed(context) end, false)
 
-    local ok_battle, err_battle = pcall(core.add_listener,
-        core,
-        LISTENER_NAMES.battle_done,
-        "BattleCompleted",
-        true,
-        function(context) wingman_safety.on_battle_completed(context) end,
-        false)
-
-    if not ok_battle then
-        warn("register_listeners: BattleCompleted failed: " .. tostring(err_battle))
-    end
-
-    local ok_war, err_war = pcall(core.add_listener,
-        core,
-        LISTENER_NAMES.war,
-        "FactionJoinsWar",
-        true,
-        function(context) wingman_safety.on_faction_joins_war(context) end,
-        false)
-
-    if not ok_war then
-        warn("register_listeners: FactionJoinsWar failed: " .. tostring(err_war))
-    end
+    local ok_war = wingman_listeners.register(
+        LISTENER_NAMES.war, "FactionJoinsWar", true,
+        function(context) wingman_safety.on_faction_joins_war(context) end, false)
 
     listeners_registered = ok_panel or ok_battle or ok_war
     log("register_listeners: panel=" .. tostring(ok_panel)
@@ -501,12 +473,8 @@ end
 
 --- Remove all safety listeners so a save/load reload can re-register cleanly.
 function wingman_safety.unregister_listeners()
-    if not core or type(core.remove_listener) ~= "function" then
-        listeners_registered = false
-        return false
-    end
     for _, name in pairs(LISTENER_NAMES) do
-        pcall(core.remove_listener, core, name)
+        wingman_listeners.unregister(name)
     end
     listeners_registered = false
     log("unregister_listeners: cleared")
