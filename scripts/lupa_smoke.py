@@ -12,6 +12,11 @@ missions -> rules -> campaign -> battle -> init). After load, each public
 bootstrap entry point is invoked; pcall must return truthy (or a truthy
 tuple) for the test to pass.
 
+NOTE: This smoke test uses a minimal engine stub (ENGINE_STUBS below).
+For tests that need realistic TWW3 engine state (factions, regions,
+adjacency, characters with cqi, panel events), see scripts/realistic_engine.py
+and tests/manual/test_realistic_engine.py.
+
 REQUIREMENTS
     pip install lupa
 
