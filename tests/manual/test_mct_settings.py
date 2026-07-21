@@ -237,6 +237,19 @@ def _run() -> int:
         return 1
     print("  OK: required_settlements CSV also parses correctly")
 
+    # Also exercise the nil-CFSettings path for rebuild_ban_list
+    # (the section-7 path tests with CFSettings set; this covers the
+    # defensive path that runs before CFSettings is initialised).
+    print("\n  (defensive) rebuild_ban_list with CFSettings=nil returns empty")
+    lua.execute('_G.CFSettings = nil')
+    lua.eval("wingman_mct.rebuild_ban_list()")
+    empty = lua.eval("wingman_mct.get_banned_factions()")
+    empty_list = list(empty.values()) if hasattr(empty, "values") else list(empty) if empty else []
+    if empty_list:
+        print(f"  FAIL: expected empty list, got {empty_list}")
+        return 1
+    print("  OK: rebuild_ban_list with CFSettings=nil returns empty list")
+
     # ---- 8. read_settings returns defaults when CFSettings is empty ----
     print("\n[8] read_settings returns defaults when CFSettings is empty")
     lua.execute('_G.CFSettings = nil')
@@ -269,39 +282,72 @@ def _run() -> int:
     print("  OK: CFSettings overrides applied correctly")
 
     # ---- 10. The battle-side constants match the campaign-side constants ----
-    # This is the architectural check: wingman_battle_init.lua duplicates
-    # the MODE_*/BIAS_* string values from wingman_constants.lua. They
-    # run in different Lua states, so they can't require each other,
-    # but the string values must stay in sync.
+    # This is the architectural check: wingman_battle_init.lua must
+    # re-export the same MODE_*/BIAS_* string values as
+    # wingman_constants.lua. They run in different Lua states, so
+    # battle_init dofiles the constants file (see wingman_battle_init.lua
+    # for the loader). This test parses BOTH files and asserts:
+    #   (a) every key in the constants file is also exported by
+    #       battle_init (no orphans in either direction)
+    #   (b) every shared key has the same string value
+    # The pre-fix code (before this PR) duplicated the strings directly
+    # in battle_init; the test was the only thing keeping them in
+    # sync. After this PR, battle_init dofiles the constants file, so
+    # this test is a defense-in-depth check that the loader actually
+    # ran and copied the right values.
     print("\n[10] wingman_battle_init constants stay in sync with wingman_constants")
-    # Read the actual file content and parse out the constants.
     bi_path = os.path.join(REPO_ROOT, "script", "battle", "mod", "wingman_battle_init.lua")
     wc_path = os.path.join(REPO_ROOT, "script", "campaign", "mod", "wingman_constants.lua")
     bi_src = open(bi_path).read()
     wc_src = open(wc_path).read()
 
     def extract_mode_constants(src):
-        """Extract the string values of MODE_*/BIAS_* constants."""
+        """Extract (name -> value) for all MODE_*/BIAS_* constants
+        assigned in `wingman_constants.X = "..."` or
+        `wingman_battle_init.X = "..."` form. Skips commented-out
+        assignments (those on lines that start with --, after -- on
+        the same line, or inside --[[ ]] blocks).
+        """
         out = {}
-        for m in re.finditer(r'(wingman_(?:battle_init|constants))\.(MODE_[A-Z_]+|BIAS_[A-Z_]+)\s*=\s*"([^"]+)"', src):
-            out[m.group(2)] = m.group(3)
+        # Strip block comments first to avoid false positives inside
+        # multi-line comments. The script is small (90 lines) so a
+        # simple state machine is sufficient.
+        cleaned = re.sub(r"--\[\[.*?\]\]", "", src, flags=re.DOTALL)
+        for m in re.finditer(
+            r'(wingman_(?:battle_init|constants))\.(MODE_[A-Z_]+|BIAS_[A-Z_]+)\s*=\s*"([^"]*)"',
+            cleaned,
+        ):
+            name = m.group(2)
+            value = m.group(3)
+            # Skip values that are obviously comments (shouldn't
+            # happen now that we stripped block comments, but be safe).
+            if value.startswith("--"):
+                continue
+            out[name] = value
         return out
 
     bi_consts = extract_mode_constants(bi_src)
     wc_consts = extract_mode_constants(wc_src)
-    if not bi_consts:
-        print("  FAIL: couldn't parse any constants from wingman_battle_init.lua")
-        return 1
     if not wc_consts:
         print("  FAIL: couldn't parse any constants from wingman_constants.lua")
         return 1
-    # Compare on the common key set
-    common = set(bi_consts.keys()) & set(wc_consts.keys())
-    if not common:
-        print("  FAIL: no shared MODE_*/BIAS_* keys between the two files")
+    if not bi_consts:
+        print("  FAIL: couldn't parse any constants from wingman_battle_init.lua")
         return 1
+    # (a) no orphans in either direction
+    bi_keys = set(bi_consts.keys())
+    wc_keys = set(wc_consts.keys())
+    only_in_bi = bi_keys - wc_keys
+    only_in_wc = wc_keys - bi_keys
+    if only_in_bi:
+        print(f"  FAIL: constants present in wingman_battle_init but not wingman_constants: {sorted(only_in_bi)}")
+        return 1
+    if only_in_wc:
+        print(f"  FAIL: constants present in wingman_constants but not wingman_battle_init: {sorted(only_in_wc)}")
+        return 1
+    # (b) shared keys have the same value
     drift = []
-    for k in sorted(common):
+    for k in sorted(wc_keys):
         if bi_consts[k] != wc_consts[k]:
             drift.append((k, bi_consts[k], wc_consts[k]))
     if drift:
@@ -309,7 +355,8 @@ def _run() -> int:
         for k, biv, wcv in drift:
             print(f"    {k}: battle_init={biv!r} constants={wcv!r}")
         return 1
-    print(f"  OK: {len(common)} shared constants are in sync: {sorted(common)}")
+    print(f"  OK: {len(wc_keys)} constants in sync: {sorted(wc_keys)}")
+    print(f"       no orphans in either direction")
 
     # ---- 11. wingman_mct is_available returns true when mct handle is present ----
     print("\n[11] is_available reflects mct handle presence")

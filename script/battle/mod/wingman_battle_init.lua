@@ -43,14 +43,43 @@ local PHASE_START = {
     "LoadingBattle",
 }
 
-wingman_battle_init.MODE_SCRIPTED_AI             = "scripted_ai"
-wingman_battle_init.MODE_AUTORESOLVE_IF_FAVORABLE = "autoresolve_if_favorable"
-wingman_battle_init.MODE_PAUSE_TO_CHOOSE         = "pause_to_choose"
-wingman_battle_init.MODE_MANUAL_OBSERVE          = "manual_observe"
-
-wingman_battle_init.BIAS_AUTO   = "auto"
-wingman_battle_init.BIAS_ATTACK = "attack"
-wingman_battle_init.BIAS_DEFEND = "defend"
+-- MODE_* and BIAS_* constants live in the campaign-side
+-- wingman_constants module. The battle state is a separate Lua VM
+-- and can't `require` directly, so we dofile the campaign-side file
+-- from this mod's known install layout. The path is the same in
+-- every TWW3 install (the script pack layout is fixed), so this is
+-- safe to do unconditionally.
+--
+-- Pre-fix code duplicated the string values as wingman_battle_init.*
+-- aliases. The duplication was kept in sync by a test, but a
+-- constant added in one file but not the other would silently drift.
+-- Now both states read the same source of truth.
+local _constants_path = "script/campaign/mod/wingman_constants.lua"
+local ok_constants, constants_or_err = pcall(dofile, _constants_path)
+if not ok_constants or type(constants_or_err) ~= "table" then
+    -- Defensive: if the campaign-side file can't be loaded, fall back
+    -- to the historical string values so the battle side still works
+    -- (engine ships, automation runs, just with the old hard-coded
+    -- values). Logged as a warning so the operator notices.
+    wingman_battle_init.MODE_SCRIPTED_AI              = "scripted_ai"
+    wingman_battle_init.MODE_AUTORESOLVE_IF_FAVORABLE = "autoresolve_if_favorable"
+    wingman_battle_init.MODE_PAUSE_TO_CHOOSE          = "pause_to_choose"
+    wingman_battle_init.MODE_MANUAL_OBSERVE           = "manual_observe"
+    wingman_battle_init.BIAS_AUTO   = "auto"
+    wingman_battle_init.BIAS_ATTACK = "attack"
+    wingman_battle_init.BIAS_DEFEND = "defend"
+    if out and type(out.tag) == "table" and type(out.tag.fight) == "function" then
+        out.tag.fight("[Wingman][BATTLE] constants load failed: " .. tostring(constants_or_err))
+    end
+else
+    wingman_battle_init.MODE_SCRIPTED_AI              = constants_or_err.MODE_SCRIPTED_AI
+    wingman_battle_init.MODE_AUTORESOLVE_IF_FAVORABLE = constants_or_err.MODE_AUTORESOLVE_IF_FAVORABLE
+    wingman_battle_init.MODE_PAUSE_TO_CHOOSE          = constants_or_err.MODE_PAUSE_TO_CHOOSE
+    wingman_battle_init.MODE_MANUAL_OBSERVE           = constants_or_err.MODE_MANUAL_OBSERVE
+    wingman_battle_init.BIAS_AUTO   = constants_or_err.BIAS_AUTO
+    wingman_battle_init.BIAS_ATTACK = constants_or_err.BIAS_ATTACK
+    wingman_battle_init.BIAS_DEFEND = constants_or_err.BIAS_DEFEND
+end
 
 local VERSION_STRING = "0.1.0-alpha"
 

@@ -32,6 +32,10 @@ wingman_constants.MODE_AUTORESOLVE_IF_FAVORABLE = "autoresolve_if_favorable"
 wingman_constants.MODE_PAUSE_TO_CHOOSE         = "pause_to_choose"
 wingman_constants.MODE_MANUAL_OBSERVE          = "manual_observe"
 
+wingman_constants.BIAS_AUTO   = "auto"
+wingman_constants.BIAS_ATTACK = "attack"
+wingman_constants.BIAS_DEFEND = "defend"
+
 wingman_constants.BATTLE_MODES = {
     "scripted_ai",
     "autoresolve_if_favorable",
