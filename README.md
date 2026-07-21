@@ -73,11 +73,24 @@ You become a spectator with full vision. Take back control anytime via toggle, b
 - **[`WORKSHOP.md`](WORKSHOP.md)** — Steam Workshop publishing checklist.
 - **[`CHANGELOG.md`](CHANGELOG.md)** — release notes.
 
-## Known Limitations (v0.1 alpha)
+## Known Limitations
 
 - Scripted battle AI doesn't perfectly replicate a player's tactical decisions; it uses the game's standard AI plans (attack / defend / auto).
 - No custom battle maps or new units.
 - Tested on Immortal Empires only; Realm of Chaos and other campaigns should work but are not fully verified.
+
+## Recent audit history (post-alpha)
+
+The mod has been through 6 rounds of deep-dive code review (14 merged PRs). Each round caught real bugs in the AI dispatch, listener wiring, perf, or state machine — none of which the lupa-smoke harness alone could expose. Highlights:
+
+- **Round 1** (PRs #1–#8) — 5 critical behavior bugs in AI dispatch (defensive cap, list_characters 1-based, type-check-always-true on mission_manager, etc.).
+- **Round 2** (PR #9) — 2 safety bugs: `mp_guard` treated a thrown `cm.query_model` as multiplayer, and `PANEL_KEYWORDS` was a substring match instead of exact-key.
+- **Round 3** (PRs #10, #11) — hot-path perf fixes (O(N²) → O(N) in `step_hero_actions`, O(N) → O(1) hoists in `iter_regions`/`iter_factions`) plus a realistic TWW3 engine stub harness and a Lua 5.1 source-level compat scanner.
+- **Round 4** (PR #12) — 3 critical listener bugs: a 6-arg call to `wingman_listeners.register` made the AI a no-op in production, the spectator panel callback was `false`, and the missions module bypassed the central registry.
+- **Round 5** (PR #13) — removed leftover `[Wingman DIAG]` debug logs; added a 422-line MCT settings test; fixed cross-file constant duplication between `wingman_battle_init.lua` and `wingman_constants.lua` by switching the battle state to `dofile` the campaign-side constants.
+- **Round 6** (PR #14) — state-machine correctness test for `wingman_state.lua` (mode machine, monotonic turn processing, ritual-recent fallback, schema-migration ordering). No production change; locks down the public contract.
+
+TWW3 PRs are reviewed by [umactually](https://github.com/JosiahSiegel/umactually) (the maintainer's AI code-review CLI) — see PR #13 for the first umactually-APPROVED TWW3 PR.
 
 ## License
 
@@ -206,15 +219,31 @@ Each module that depends on another runs an `if type(X) ~= "table" then
 error(...) end` guard at load time. Loading a consumer before its
 dependency produces a clear error, not a delayed nil deref.
 
-### Test surface
-
-Tests live in `tests/manual/`. Run them all with:
+17 test files, 130+ checks, all green. Run from the repo root:
 
 ```bash
 python3 scripts/lupa_smoke.py
 for t in tests/manual/test_*.py; do python3 "$t"; done
 ```
 
-Each test file is standalone and uses lupa to load the campaign
-modules with engine stubs. The pattern is identical to
-`tests/manual/test_w6_ai_features.py`.
+| File | What it covers |
+|---|---|
+| `test_behavior_bugs.py` | Round-1 behavior bug regressions (5 checks) |
+| `test_behavior_bugs_2.py` | Round-2 behavior bug regressions (9 checks) |
+| `test_state_migrations.py` | Schema migration chain (5 checks) |
+| `test_listener_helper.py` | `wingman_listeners` register/unregister lifecycle (5 checks) |
+| `test_listener_arg_shapes.py` | Round-4 listener-arg-shape regressions (7 checks; locks down the central registry contract) |
+| `test_json_encode.py` | Numeric-aware key sort in JSON encoder (5 checks) |
+| `test_constants_module.py` | `wingman_constants` single-source-of-truth (5 checks) |
+| `test_load_order_guards.py` | Every cross-module consumer has a load-order guard (5 checks) |
+| `test_hot_path_perf.py` | O(1) hoists in `iter_regions`/`iter_factions`; O(N²)→O(N) in `step_hero_actions` (5 sections) |
+| `test_realistic_engine.py` | Real TWW3 API-shape stubs for tests that need full engine state (7 sections) |
+| `test_lua51_compat.py` | Source of truth: no `goto`, `::label::`, `bit32.*`, `//`, `loadstring`, `string.pack`, or unguarded `table.unpack` in any Lua source (3 checks) |
+| `test_mct_integration.py` | MCT module load + register path |
+| `test_mct_settings.py` | MCT module settings (defaults, slider clamping, dropdown normalization, CSV parsing, cross-file constant sync; 13 sections) |
+| `test_state_machine.py` | Round-6 state-machine correctness for `wingman_state.lua` (5 sections) |
+| `test_w6_ai_features.py` | W6 step dispatch end-to-end |
+| `test_w7_autopilot.py` | W7 autopilot + advisory mode behavior |
+| `test_w8_step_coverage.py` | W8 14-step dispatch coverage (20 checks) |
+
+Tests are a mix of fast lupa-smoke stubs (`test_behavior_bugs.py`, `test_w6_ai_features.py`) and realistic-engine tests (`test_realistic_engine.py`, `test_state_machine.py`) that exercise the real shape of TWW3 engine state. See `tests/manual/LOCAL_TESTING.md` for the dev loop.
