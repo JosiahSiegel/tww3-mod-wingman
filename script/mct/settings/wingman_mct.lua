@@ -52,10 +52,12 @@ end
 -- the correct failure mode -- NOT a silent bail at out() like the
 -- previous early-return block caused.
 local mct = get_mct and get_mct() or nil
-safe_out("[Wingman DIAG] get_mct returned: " .. tostring(mct) .. " type=" .. type(mct))
-if type(mct) == "table" then
-    safe_out("[Wingman DIAG] mct.register_mod type: " .. type(mct.register_mod))
-end
+-- The handle is captured for the registration block below; missing
+-- mct is intentionally NOT logged via safe_out here. The launcher's
+-- outer pcall will produce the canonical "Failed to load mod file"
+-- error if the registration block throws, which is the right place
+-- for that signal to live. The previous `[Wingman DIAG]` lines
+-- duplicated that signal and added nothing.
 
 
 ---------------------------------------------------------------------
